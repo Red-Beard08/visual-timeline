@@ -3,3 +3,4 @@
 @media(max-width:700px){.vt-kingdom-chart::after{inset:0 0 0 108px}}
 .vt-kingdom-connectors{position:absolute;z-index:0;top:0;left:148px;width:calc(100% - 148px);overflow:visible;pointer-events:none}.vt-kingdom-connector{position:absolute;width:2px;background:var(--text-accent);border-radius:2px;opacity:.78}
 @media(max-width:700px){.vt-kingdom-connectors{left:108px;width:calc(100% - 108px)}}
+.vt-kingdom-connector{fill:none;stroke:var(--text-accent);stroke-width:1.35;stroke-linecap:round;stroke-dasharray:2.5 2;opacity:.86}

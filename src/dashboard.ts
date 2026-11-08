@@ -125,17 +125,25 @@ export class TimelineView extends ItemView {
       return {record, index};
     });
     const rowHeight = 56;
-    const connectors = chart.createDiv({cls: "vt-kingdom-connectors", attr: {"aria-hidden": "true"}});
+    const svgNamespace = ["http:", "", "www.w3.org", "2000", "svg"].join("/");
+    const connectors = document.createElementNS(svgNamespace, "svg") as SVGSVGElement;
+    connectors.setAttribute("class", "vt-kingdom-connectors");
+    connectors.setAttribute("aria-hidden", "true");
+    connectors.setAttribute("viewBox", `0 0 100 ${Math.max(rowHeight, rows.length * rowHeight)}`);
     connectors.style.height = `${Math.max(rowHeight, rows.length * rowHeight)}px`;
     const byId = new Map(rows.map(row => [row.record.id, row]));
     for (const source of rows) for (const targetId of source.record.relations.succeeded_by) {
       const target = byId.get(targetId);
       if (!target) continue;
-      const x = Math.max(0, Math.min(100, (dateValue(target.record.date.start) - bounds.min) / (bounds.max - bounds.min) * 100));
-      const line = connectors.createDiv({cls: "vt-kingdom-connector"});
-      line.style.left = `${x}%`;
-      line.style.top = `${Math.min(source.index, target.index) * rowHeight + rowHeight / 2}px`;
-      line.style.height = `${Math.abs(target.index - source.index) * rowHeight}px`;
+      const sourceEnd = dateValue(source.record.date.end || source.record.date.start);
+      const sourceX = Math.max(0, Math.min(100, (sourceEnd - bounds.min) / (bounds.max - bounds.min) * 100));
+      const targetX = Math.max(0, Math.min(100, (dateValue(target.record.date.start) - bounds.min) / (bounds.max - bounds.min) * 100));
+      const sourceY = source.index * rowHeight + rowHeight / 2;
+      const targetY = target.index * rowHeight + rowHeight / 2;
+      const path = document.createElementNS(svgNamespace, "path");
+      path.setAttribute("d", `M ${sourceX} ${sourceY} C ${sourceX + 7} ${sourceY}, ${targetX - 7} ${targetY}, ${targetX} ${targetY}`);
+      path.setAttribute("class", "vt-kingdom-connector");
+      connectors.appendChild(path);
     }
     chart.prepend(connectors);
   }
