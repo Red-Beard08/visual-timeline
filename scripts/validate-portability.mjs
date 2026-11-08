@@ -1,0 +1,12 @@
+import {readFile} from "node:fs/promises";
+const manifest=JSON.parse(await readFile("manifest.json","utf8"));
+const main=await readFile("main.js","utf8");
+const failures=[];
+if(manifest.id!=="visual-timeline")failures.push("Unexpected plugin id.");
+if(manifest.version!=="1.0.0")failures.push("Manifest version mismatch.");
+if(manifest.isDesktopOnly!==false)failures.push("Visual Timeline must remain mobile-compatible.");
+if(/require\(["'](?:fs|path|electron|os|child_process)["']\)/.test(main))failures.push("Desktop-only runtime import found.");
+if(main.includes("http://")||main.includes("https://"))failures.push("Network dependency found in bundle.");
+if(!main.includes("visual-timeline-dashboard")||!main.includes("registerDashboardWidget"))failures.push("Timeline view or Dashboard bridge missing.");
+if(failures.length)throw new Error(failures.join("\n"));
+console.log("Validated Visual Timeline portability and local-only runtime.");

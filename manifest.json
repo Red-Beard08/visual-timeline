@@ -1,0 +1,9 @@
+{
+  "id": "visual-timeline",
+  "name": "Visual Timeline",
+  "version": "1.0.0",
+  "minAppVersion": "1.5.0",
+  "description": "Local, Markdown-first historical timelines with explicit streams, branches, eras, and relationships.",
+  "author": "Red-Beard",
+  "isDesktopOnly": false
+}

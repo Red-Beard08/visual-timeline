@@ -1,0 +1,9 @@
+{
+  "name": "visual-timeline",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {"build": "node esbuild.config.mjs production", "typecheck": "tsc --noEmit", "test": "npm run typecheck && npm run build && node tests/test-utils.mjs && node scripts/validate-portability.mjs"},
+  "author": "Red-Beard",
+  "license": "MIT",
+  "devDependencies": {"builtin-modules": "^4.0.0", "esbuild": "^0.25.0", "obsidian": "latest", "typescript": "^5.7.0"}
+}

@@ -1,0 +1,4 @@
+{
+  "compilerOptions": {"baseUrl":".","paths":{"obsidian":["node_modules/obsidian"]},"typeRoots":["node_modules/@types","node_modules/obsidian"],"module":"ESNext","target":"es2018","moduleResolution":"node","strict":true,"noImplicitReturns":true,"skipLibCheck":true,"esModuleInterop":true,"lib":["dom","es2020"]},
+  "include":["src/**/*.ts"]
+}
