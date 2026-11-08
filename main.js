@@ -388,7 +388,7 @@ function register(app, method, definition) {
     const host = (_b = (_a = app.plugins) == null ? void 0 : _a.getPlugin) == null ? void 0 : _b.call(_a, "red-beard-dashboard");
     const fn = host == null ? void 0 : host[method];
     if (fn) {
-      dispose = fn(definition) || (() => void 0);
+      dispose = fn.call(host, definition) || (() => void 0);
       return;
     }
     if (tries++ < 120) timer = window.setTimeout(attempt, 250);
