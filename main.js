@@ -211,6 +211,96 @@ updated: ${(/* @__PURE__ */ new Date()).toISOString()}
 
 // src/dashboard.ts
 var import_obsidian3 = require("obsidian");
+
+// src/streams.ts
+function renderStreams(parent, records, bounds, open) {
+  const ns = ["http:", "", "www.w3.org", "2000", "svg"].join("/");
+  const section = parent.createDiv({ cls: "vt-rivers" });
+  section.createEl("p", { text: "Kingdoms \xB7 follow a stream to its successors. Select a ribbon to open its note.", cls: "vt-section-note" });
+  const viewport = section.createDiv({ cls: "vt-river-scroll" });
+  const svg = document.createElementNS(ns, "svg");
+  const sorted = [...records].sort((a, b) => dateValue(a.date.start) - dateValue(b.date.start) || a.id.localeCompare(b.id));
+  const height = Math.max(340, sorted.length * 110 + 60);
+  svg.setAttribute("viewBox", `0 0 1200 ${height}`);
+  svg.setAttribute("class", "vt-river-svg");
+  svg.setAttribute("aria-label", "Kingdom succession streams");
+  viewport.appendChild(svg);
+  const x = (date) => 40 + (dateValue(date) - bounds.min) / Math.max(1, bounds.max - bounds.min) * 1120;
+  const resolve = (ref) => sorted.find((r) => r.id === ref || r.path.replace(/\.md$/, "") === ref || r.file.basename === ref);
+  const parents = /* @__PURE__ */ new Map();
+  for (const r of sorted) {
+    for (const ref of [...r.relations.split_into, ...r.relations.succeeded_by]) {
+      const t = resolve(ref);
+      if (t && t.id !== r.id) parents.set(t.id, r);
+    }
+    for (const ref of [...r.relations.continued_from, ...r.relations.preceded_by]) {
+      const p = resolve(ref);
+      if (p && p.id !== r.id) parents.set(r.id, p);
+    }
+  }
+  const ys = new Map(sorted.map((r, i) => [r.id, 80 + i * 110]));
+  for (const r of [...sorted].reverse()) {
+    const children = sorted.filter((c) => {
+      var _a;
+      return ((_a = parents.get(c.id)) == null ? void 0 : _a.id) === r.id;
+    });
+    if (children.length) ys.set(r.id, children.reduce((n, c) => n + ys.get(c.id), 0) / children.length);
+  }
+  const colors = ["#bb9865", "#659fa0", "#a887b0", "#859c64", "#bc8276"];
+  sorted.forEach((r, i) => {
+    const start = x(r.date.start), end = Math.max(start + 3, x(r.date.end || r.date.start)), y = ys.get(r.id);
+    const p = parents.get(r.id), py = p ? ys.get(p.id) : y;
+    const siblings = p ? sorted.filter((c) => {
+      var _a;
+      return ((_a = parents.get(c.id)) == null ? void 0 : _a.id) === p.id;
+    }) : [];
+    const slot = siblings.findIndex((c) => c.id === r.id);
+    const half = p ? 26 / Math.max(1, siblings.length) : 26;
+    const origin = p ? py - 26 + half + slot * half * 2 : y;
+    const bend = Math.min(145, (end - start) * 0.45), settle = start + bend;
+    const branches = sorted.some((c) => {
+      var _a;
+      return ((_a = parents.get(c.id)) == null ? void 0 : _a.id) === r.id;
+    });
+    const tail = Math.min(45, (end - settle) * 0.5);
+    const tip = branches ? 26 : 0;
+    const d = `M ${start} ${origin - half} C ${start + bend * 0.55} ${origin - half} ${start + bend * 0.45} ${y - 26} ${settle} ${y - 26} C ${end - tail} ${y - 26} ${end - tail * 0.25} ${y - tip} ${end} ${y - tip} L ${end} ${y + tip} C ${end - tail * 0.25} ${y + tip} ${end - tail} ${y + 26} ${settle} ${y + 26} C ${start + bend * 0.45} ${y + 26} ${start + bend * 0.55} ${origin + half} ${start} ${origin + half} Z`;
+    const g = document.createElementNS(ns, "g");
+    g.setAttribute("class", "vt-river");
+    g.setAttribute("tabindex", "0");
+    g.setAttribute("role", "link");
+    g.setAttribute("aria-label", `${r.title}, ${r.date.display || r.date.start}`);
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", colors[i % colors.length]);
+    g.appendChild(path);
+    const title = document.createElementNS(ns, "title");
+    title.textContent = `${r.title} \xB7 ${r.date.display || r.date.start}`;
+    g.appendChild(title);
+    const label = document.createElementNS(ns, "text");
+    label.setAttribute("x", String(p ? settle + 12 : start + 12));
+    label.setAttribute("y", String(y - 38));
+    label.textContent = r.title;
+    g.appendChild(label);
+    const date = document.createElementNS(ns, "text");
+    date.setAttribute("x", label.getAttribute("x"));
+    date.setAttribute("y", String(y + 44));
+    date.setAttribute("class", "vt-river-date");
+    date.textContent = r.date.display || r.date.start;
+    g.appendChild(date);
+    g.addEventListener("click", () => open(r.path));
+    g.addEventListener("keydown", (e) => {
+      const key = e.key;
+      if (key === "Enter" || key === " ") {
+        e.preventDefault();
+        open(r.path);
+      }
+    });
+    svg.appendChild(g);
+  });
+}
+
+// src/dashboard.ts
 var VIEW = "visual-timeline-dashboard";
 var TimelineView = class extends import_obsidian3.ItemView {
   constructor(leaf, plugin) {
@@ -285,7 +375,10 @@ var TimelineView = class extends import_obsidian3.ItemView {
       if (!lanes.has(lane)) lanes.set(lane, []);
       lanes.get(lane).push(record);
     }
-    const graph = body.createDiv({ cls: "vt-graph" });
+    const details = body.createEl("details");
+    details.createEl("summary", { text: "People, events and relationship details" });
+    if (!kingdoms.length || q) details.open = true;
+    const graph = details.createDiv({ cls: "vt-graph" });
     for (const [laneName, laneRecords] of lanes) {
       const lane = graph.createDiv({ cls: "vt-lane" });
       lane.createDiv({ cls: "vt-lane-label", text: laneName });
@@ -294,7 +387,7 @@ var TimelineView = class extends import_obsidian3.ItemView {
     }
     const relationRecords = records.filter((r) => Object.values(r.relations).some((v) => v.length));
     if (relationRecords.length) {
-      const rel = body.createDiv({ cls: "vt-relations" });
+      const rel = details.createDiv({ cls: "vt-relations" });
       rel.createEl("h2", { text: "Explicit relationships" });
       for (const record of relationRecords.slice(0, 12)) {
         const row = rel.createDiv({ cls: "vt-relation-row" });
@@ -324,55 +417,7 @@ var TimelineView = class extends import_obsidian3.ItemView {
     };
   }
   renderKingdomChart(parent, records, bounds) {
-    const section = parent.createDiv({ cls: "vt-kingdom-section" });
-    section.createEl("h2", { text: "Kingdom streams" });
-    section.createEl("p", { cls: "vt-section-note", text: "The united monarchy continues into two explicit successor kingdoms at the split point. Select a stream to open its source note." });
-    const chart = section.createDiv({ cls: "vt-kingdom-chart" });
-    const ordered = [...records].sort((a, b) => dateValue(b.date.start) - dateValue(a.date.start));
-    const rows = ordered.map((record, index) => {
-      const row = chart.createDiv({ cls: "vt-kingdom-row", attr: { "data-record-id": record.id } });
-      const label = row.createDiv({ cls: "vt-kingdom-label" });
-      label.createEl("strong", { text: record.title.replace("Kingdom of ", "") });
-      label.createEl("small", { text: record.date.display || record.date.start });
-      const track = row.createDiv({ cls: "vt-kingdom-track" });
-      const start = dateValue(record.date.start), end = dateValue(record.date.end || record.date.start);
-      const left = Math.max(0, Math.min(100, (start - bounds.min) / (bounds.max - bounds.min) * 100));
-      const width = Math.max(2, Math.min(96, (Math.max(end, start + 1) - start) / (bounds.max - bounds.min) * 100));
-      const bar = track.createDiv({ cls: "vt-kingdom-bar", attr: { tabindex: "0", "aria-label": `${record.title}, ${record.date.display || record.date.start}` } });
-      bar.style.left = `${left}%`;
-      bar.style.width = `${width}%`;
-      if (record.id !== "VTL-KINGDOM-UNITED") row.addClass("is-branch");
-      bar.onclick = () => this.plugin.openNote(record.path);
-      bar.onkeydown = (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          this.plugin.openNote(record.path);
-        }
-      };
-      return { record, index };
-    });
-    const rowHeight = 56;
-    const svgNamespace = ["http:", "", "www.w3.org", "2000", "svg"].join("/");
-    const connectors = document.createElementNS(svgNamespace, "svg");
-    connectors.setAttribute("class", "vt-kingdom-connectors");
-    connectors.setAttribute("aria-hidden", "true");
-    connectors.setAttribute("viewBox", `0 0 100 ${Math.max(rowHeight, rows.length * rowHeight)}`);
-    connectors.style.height = `${Math.max(rowHeight, rows.length * rowHeight)}px`;
-    const byId = new Map(rows.map((row) => [row.record.id, row]));
-    for (const source of rows) for (const targetId of source.record.relations.succeeded_by) {
-      const target = byId.get(targetId);
-      if (!target) continue;
-      const sourceEnd = dateValue(source.record.date.end || source.record.date.start);
-      const sourceX = Math.max(0, Math.min(100, (sourceEnd - bounds.min) / (bounds.max - bounds.min) * 100));
-      const targetX = Math.max(0, Math.min(100, (dateValue(target.record.date.start) - bounds.min) / (bounds.max - bounds.min) * 100));
-      const sourceY = source.index * rowHeight + rowHeight / 2;
-      const targetY = target.index * rowHeight + rowHeight / 2;
-      const path = document.createElementNS(svgNamespace, "path");
-      path.setAttribute("d", `M ${sourceX} ${sourceY} C ${sourceX + 7} ${sourceY}, ${targetX - 7} ${targetY}, ${targetX} ${targetY}`);
-      path.setAttribute("class", "vt-kingdom-connector");
-      connectors.appendChild(path);
-    }
-    chart.prepend(connectors);
+    renderStreams(parent, records, bounds, (path) => this.plugin.openNote(path));
   }
   formatYear(value) {
     const year = Math.round(value);

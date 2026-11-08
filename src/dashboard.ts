@@ -3,6 +3,8 @@ import type {TimelineRecord} from "./types";
 import type VisualTimeline from "./main";
 import {dateValue, rangeOf} from "./utils";
 
+import {renderStreams} from "./streams";
+
 export const VIEW = "visual-timeline-dashboard";
 
 export class TimelineView extends ItemView {
@@ -65,7 +67,10 @@ export class TimelineView extends ItemView {
       if (!lanes.has(lane)) lanes.set(lane, []);
       lanes.get(lane)!.push(record);
     }
-    const graph = body.createDiv({cls: "vt-graph"});
+    const details = body.createEl("details");
+    details.createEl("summary", {text: "People, events and relationship details"});
+    if (!kingdoms.length || q) details.open = true;
+    const graph = details.createDiv({cls: "vt-graph"});
     for (const [laneName, laneRecords] of lanes) {
       const lane = graph.createDiv({cls: "vt-lane"});
       lane.createDiv({cls: "vt-lane-label", text: laneName});
@@ -75,7 +80,7 @@ export class TimelineView extends ItemView {
 
     const relationRecords = records.filter(r => Object.values(r.relations).some(v => v.length));
     if (relationRecords.length) {
-      const rel = body.createDiv({cls: "vt-relations"});
+      const rel = details.createDiv({cls: "vt-relations"});
       rel.createEl("h2", {text: "Explicit relationships"});
       for (const record of relationRecords.slice(0, 12)) {
         const row = rel.createDiv({cls: "vt-relation-row"});
@@ -102,50 +107,7 @@ export class TimelineView extends ItemView {
   }
 
   private renderKingdomChart(parent: HTMLElement, records: TimelineRecord[], bounds: {min: number; max: number}): void {
-    const section = parent.createDiv({cls: "vt-kingdom-section"});
-    section.createEl("h2", {text: "Kingdom streams"});
-    section.createEl("p", {cls: "vt-section-note", text: "The united monarchy continues into two explicit successor kingdoms at the split point. Select a stream to open its source note."});
-    const chart = section.createDiv({cls: "vt-kingdom-chart"});
-    const ordered = [...records].sort((a, b) => dateValue(b.date.start) - dateValue(a.date.start));
-    const rows = ordered.map((record, index) => {
-      const row = chart.createDiv({cls: "vt-kingdom-row", attr: {"data-record-id": record.id}});
-      const label = row.createDiv({cls: "vt-kingdom-label"});
-      label.createEl("strong", {text: record.title.replace("Kingdom of ", "")});
-      label.createEl("small", {text: record.date.display || record.date.start});
-      const track = row.createDiv({cls: "vt-kingdom-track"});
-      const start = dateValue(record.date.start), end = dateValue(record.date.end || record.date.start);
-      const left = Math.max(0, Math.min(100, (start - bounds.min) / (bounds.max - bounds.min) * 100));
-      const width = Math.max(2, Math.min(96, (Math.max(end, start + 1) - start) / (bounds.max - bounds.min) * 100));
-      const bar = track.createDiv({cls: "vt-kingdom-bar", attr: {tabindex: "0", "aria-label": `${record.title}, ${record.date.display || record.date.start}`}});
-      bar.style.left = `${left}%`;
-      bar.style.width = `${width}%`;
-      if (record.id !== "VTL-KINGDOM-UNITED") row.addClass("is-branch");
-      bar.onclick = () => this.plugin.openNote(record.path);
-      bar.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.plugin.openNote(record.path); } };
-      return {record, index};
-    });
-    const rowHeight = 56;
-    const svgNamespace = ["http:", "", "www.w3.org", "2000", "svg"].join("/");
-    const connectors = document.createElementNS(svgNamespace, "svg") as SVGSVGElement;
-    connectors.setAttribute("class", "vt-kingdom-connectors");
-    connectors.setAttribute("aria-hidden", "true");
-    connectors.setAttribute("viewBox", `0 0 100 ${Math.max(rowHeight, rows.length * rowHeight)}`);
-    connectors.style.height = `${Math.max(rowHeight, rows.length * rowHeight)}px`;
-    const byId = new Map(rows.map(row => [row.record.id, row]));
-    for (const source of rows) for (const targetId of source.record.relations.succeeded_by) {
-      const target = byId.get(targetId);
-      if (!target) continue;
-      const sourceEnd = dateValue(source.record.date.end || source.record.date.start);
-      const sourceX = Math.max(0, Math.min(100, (sourceEnd - bounds.min) / (bounds.max - bounds.min) * 100));
-      const targetX = Math.max(0, Math.min(100, (dateValue(target.record.date.start) - bounds.min) / (bounds.max - bounds.min) * 100));
-      const sourceY = source.index * rowHeight + rowHeight / 2;
-      const targetY = target.index * rowHeight + rowHeight / 2;
-      const path = document.createElementNS(svgNamespace, "path");
-      path.setAttribute("d", `M ${sourceX} ${sourceY} C ${sourceX + 7} ${sourceY}, ${targetX - 7} ${targetY}, ${targetX} ${targetY}`);
-      path.setAttribute("class", "vt-kingdom-connector");
-      connectors.appendChild(path);
-    }
-    chart.prepend(connectors);
+    renderStreams(parent, records, bounds, path => this.plugin.openNote(path));
   }
 
   private formatYear(value: number): string { const year = Math.round(value); return year < 0 ? `${Math.abs(year)} BC` : `AD ${year || 1}`; }
