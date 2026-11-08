@@ -3,7 +3,7 @@ const manifest=JSON.parse(await readFile("manifest.json","utf8"));
 const main=await readFile("main.js","utf8");
 const failures=[];
 if(manifest.id!=="visual-timeline")failures.push("Unexpected plugin id.");
-if(manifest.version!=="1.0.1")failures.push("Manifest version mismatch.");
+if(manifest.version!=="1.1.0")failures.push("Manifest version mismatch.");
 if(manifest.isDesktopOnly!==false)failures.push("Visual Timeline must remain mobile-compatible.");
 if(/require\(["'](?:fs|path|electron|os|child_process)["']\)/.test(main))failures.push("Desktop-only runtime import found.");
 if(main.includes("http://")||main.includes("https://"))failures.push("Network dependency found in bundle.");

@@ -276,8 +276,11 @@ var TimelineView = class extends import_obsidian3.ItemView {
       tick.style.left = `${position * 100}%`;
       tick.createSpan({ text: this.formatYear(bounds.min + (bounds.max - bounds.min) * position) });
     });
+    const kingdoms = records.filter((record) => record.type === "visual-timeline-kingdom");
+    if (kingdoms.length) this.renderKingdomChart(body, kingdoms, bounds);
+    const detailRecords = records.filter((record) => record.type !== "visual-timeline-kingdom");
     const lanes = /* @__PURE__ */ new Map();
-    for (const record of records) {
+    for (const record of detailRecords) {
       const lane = record.layers[0] || record.type.replace("visual-timeline-", "");
       if (!lanes.has(lane)) lanes.set(lane, []);
       lanes.get(lane).push(record);
@@ -287,24 +290,7 @@ var TimelineView = class extends import_obsidian3.ItemView {
       const lane = graph.createDiv({ cls: "vt-lane" });
       lane.createDiv({ cls: "vt-lane-label", text: laneName });
       const track = lane.createDiv({ cls: "vt-track" });
-      for (const record of laneRecords) {
-        const start = dateValue(record.date.start), end = dateValue(record.date.end || record.date.start);
-        const left = Math.max(0, Math.min(100, (start - bounds.min) / (bounds.max - bounds.min) * 100));
-        const width = Math.max(2, Math.min(96, (Math.max(end, start + 1) - start) / (bounds.max - bounds.min) * 100));
-        const card = track.createDiv({ cls: "vt-record", attr: { tabindex: "0", "aria-label": `${record.title}, ${record.date.display || record.date.start}` } });
-        card.style.left = `${left}%`;
-        card.style.width = `${width}%`;
-        card.createEl("strong", { text: record.title });
-        card.createEl("small", { text: record.date.display || record.date.start });
-        if (record.date.circa) card.addClass("is-circa");
-        card.onclick = () => this.plugin.openNote(record.path);
-        card.onkeydown = (e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            this.plugin.openNote(record.path);
-          }
-        };
-      }
+      for (const record of laneRecords) this.renderRecord(track, record, bounds);
     }
     const relationRecords = records.filter((r) => Object.values(r.relations).some((v) => v.length));
     if (relationRecords.length) {
@@ -318,6 +304,67 @@ var TimelineView = class extends import_obsidian3.ItemView {
         row.createEl("span", { text: labels.join(" \xB7 ") });
       }
     }
+  }
+  renderRecord(track, record, bounds) {
+    const start = dateValue(record.date.start), end = dateValue(record.date.end || record.date.start);
+    const left = Math.max(0, Math.min(100, (start - bounds.min) / (bounds.max - bounds.min) * 100));
+    const width = Math.max(2, Math.min(96, (Math.max(end, start + 1) - start) / (bounds.max - bounds.min) * 100));
+    const card = track.createDiv({ cls: "vt-record", attr: { tabindex: "0", "aria-label": `${record.title}, ${record.date.display || record.date.start}` } });
+    card.style.left = `${left}%`;
+    card.style.width = `${width}%`;
+    card.createEl("strong", { text: record.title });
+    card.createEl("small", { text: record.date.display || record.date.start });
+    if (record.date.circa) card.addClass("is-circa");
+    card.onclick = () => this.plugin.openNote(record.path);
+    card.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        this.plugin.openNote(record.path);
+      }
+    };
+  }
+  renderKingdomChart(parent, records, bounds) {
+    const section = parent.createDiv({ cls: "vt-kingdom-section" });
+    section.createEl("h2", { text: "Kingdom streams" });
+    section.createEl("p", { cls: "vt-section-note", text: "The united monarchy continues into two explicit successor kingdoms at the split point. Select a stream to open its source note." });
+    const chart = section.createDiv({ cls: "vt-kingdom-chart" });
+    const ordered = [...records].sort((a, b) => dateValue(b.date.start) - dateValue(a.date.start));
+    const rows = ordered.map((record, index) => {
+      const row = chart.createDiv({ cls: "vt-kingdom-row", attr: { "data-record-id": record.id } });
+      const label = row.createDiv({ cls: "vt-kingdom-label" });
+      label.createEl("strong", { text: record.title.replace("Kingdom of ", "") });
+      label.createEl("small", { text: record.date.display || record.date.start });
+      const track = row.createDiv({ cls: "vt-kingdom-track" });
+      const start = dateValue(record.date.start), end = dateValue(record.date.end || record.date.start);
+      const left = Math.max(0, Math.min(100, (start - bounds.min) / (bounds.max - bounds.min) * 100));
+      const width = Math.max(2, Math.min(96, (Math.max(end, start + 1) - start) / (bounds.max - bounds.min) * 100));
+      const bar = track.createDiv({ cls: "vt-kingdom-bar", attr: { tabindex: "0", "aria-label": `${record.title}, ${record.date.display || record.date.start}` } });
+      bar.style.left = `${left}%`;
+      bar.style.width = `${width}%`;
+      if (record.id !== "VTL-KINGDOM-UNITED") row.addClass("is-branch");
+      bar.onclick = () => this.plugin.openNote(record.path);
+      bar.onkeydown = (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          this.plugin.openNote(record.path);
+        }
+      };
+      return { record, index };
+    });
+    const rowHeight = 56;
+    const connectors = chart.createDiv({ cls: "vt-kingdom-connectors", attr: { "aria-hidden": "true" } });
+    connectors.style.height = `${Math.max(rowHeight, rows.length * rowHeight)}px`;
+    const byId = new Map(rows.map((row) => [row.record.id, row]));
+    for (const source of rows) for (const targetId of source.record.relations.succeeded_by) {
+      const target = byId.get(targetId);
+      if (!target) continue;
+      const x = Math.max(0, Math.min(100, (dateValue(target.record.date.start) - bounds.min) / (bounds.max - bounds.min) * 100));
+      const line = connectors.createDiv({ cls: "vt-kingdom-connector" });
+      line.style.left = `${x}%`;
+      line.style.top = `${Math.min(source.index, target.index) * rowHeight + rowHeight / 2}px`;
+      line.style.height = `${Math.abs(target.index - source.index) * rowHeight}px`;
+    }
+    chart.prepend(connectors);
   }
   formatYear(value) {
     const year = Math.round(value);
