@@ -1,14 +1,14 @@
 import type {TimelineRecord} from './types';
 import type {Composition,CompositionSettings} from './composition';
 import {matches} from './composition';
-import {layoutRow,placeLabels,centerAt,ribbonPath,curvePath,PlacedItem} from './layout';
+import {layoutRow,placeLabels,centerAt,halfAt,ribbonPath,curvePath,PlacedItem} from './layout';
 import {formatTime,timeTicks,historicalDate} from './dates';
 const NS=['http:','','www.w3.org','2000','svg'].join('/');
 function element(tag:string,attrs:Record<string,string|number>={},text?:string):SVGElement {
   const el=document.createElementNS(NS,tag) as SVGElement;for(const [k,v]of Object.entries(attrs))el.setAttribute(k,String(v));if(text)el.textContent=text;return el;
 }
 export interface ChartController {destroy():void;setVisible(ids:Set<string>):void;zoomBy(factor:number):void;fit():void;}
-export function renderComposition(parent:HTMLElement,view:Composition,settings:CompositionSettings,records:TimelineRecord[],_bounds:{min:number;max:number},open:(path:string)=>void,initialZoom=1):ChartController {
+export function renderComposition(parent:HTMLElement,view:Composition,settings:CompositionSettings,records:TimelineRecord[],_bounds:{min:number;max:number},open:(path:string)=>void,initialZoom=1,saveView?:(view:Composition)=>Promise<void>):ChartController {
   const root=parent.createDiv({cls:'vt-chart'}),toolbar=root.createDiv({cls:'vt-chart-tools'});
   const button=(host:HTMLElement,text:string,fn:()=>void)=>{const b=host.createEl('button',{text});b.onclick=fn;return b;};
   const scroll=root.createDiv({cls:'vt-chart-scroll',attr:{tabindex:'0','aria-label':'Timeline; scroll to explore. Select a shape for details.'}});
@@ -49,10 +49,12 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
     const viewport=Math.max(260,scroll.clientWidth),plotWidth=Math.max(720,viewport-gutter)*zoom,total=plotWidth+gutter;
     lastWidth=viewport;
     const canvas=scroll.createDiv({cls:'vt-chart-canvas'});canvas.style.width=`${total}px`;
+    const ticks=timeTicks(bounds.min,bounds.max,plotWidth);
+    const tickX=(tick:number)=>24+(tick-min)/(bounds.max-min)*(plotWidth-48);
     const axis=canvas.createDiv({cls:'vt-sticky-axis'});axis.style.width=`${total}px`;
     axis.createDiv({cls:'vt-axis-corner',text:'History'}).style.width=`${gutter}px`;
     const ruler=element('svg',{width:plotWidth,height:38,'aria-label':'Shared date scale'});
-    for(const tick of timeTicks(bounds.min,bounds.max,plotWidth)){const x=24+(tick-min)/(bounds.max-min)*(plotWidth-48);ruler.appendChild(element('line',{x1:x,x2:x,y1:26,y2:38}));ruler.appendChild(element('text',{x,y:18,'text-anchor':'middle'},formatTime(tick,bounds.max-min<2)));}axis.appendChild(ruler);
+    for(const tick of ticks){const x=tickX(tick);ruler.appendChild(element('line',{x1:x,x2:x,y1:26,y2:38}));ruler.appendChild(element('text',{x,y:18,'text-anchor':'middle'},formatTime(tick,bounds.max-min<2)));}axis.appendChild(ruler);
     let warningCount=0;const warningList: {record:TimelineRecord;message:string}[]=[];
     for(const row of view.rows.filter(r=>r.enabled)){
       const section=canvas.createDiv({cls:'vt-compact-row'});section.createEl('h2',{text:row.name,cls:'vt-compact-row-title'});
@@ -78,11 +80,17 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
         const x=p.x,y=centerAt(p.curve,x),g=shapeGroup([p],x,y),attrs={fill:p.layer.color,opacity:p.layer.opacity};
         if(p.style==='stream'||p.style==='box'){
           if(p.xEnd===p.x)g.appendChild(element('line',{x1:x,x2:x,y1:y-6,y2:y+6,stroke:p.layer.color,'stroke-width':2}));
-          else g.appendChild(element('path',{...attrs,d:ribbonPath(p)}));
+          else g.appendChild(element('path',{...attrs,d:ribbonPath(p),class:p.isAnchor?'vt-anchor-shape':'vt-duration-shape'}));
         }else if(p.style==='dot')g.appendChild(element('circle',{...attrs,cx:x,cy:y,r:5}));
         else if(p.style==='line')g.appendChild(element('path',{d:curvePath(p),stroke:p.layer.color,'stroke-width':2,fill:'none',opacity:p.layer.opacity}));
         else g.appendChild(element('rect',{...attrs,x,y:p.anchor?y-28:16,width:Math.max(1,p.xEnd-x),height:p.anchor?56:layout.height-32}));
         if(!p.isAnchor&&p.style!=='band')g.appendChild(element('path',{d:curvePath(p),stroke:'transparent','stroke-width':20,fill:'none',class:'vt-hit-area'}));
+        if(!p.isAnchor&&['box','stream','line'].includes(p.style))for(const boundary of [...new Set([p.x,p.xEnd])]){
+          const cy=centerAt(p.curve,boundary),half=halfAt(p,boundary)+2;
+          const cap={x1:boundary,x2:boundary,y1:cy-half,y2:cy+half};
+          g.appendChild(element('line',{...cap,class:'vt-boundary-under'}));
+          g.appendChild(element('line',{...cap,class:'vt-item-boundary'}));
+        }
         if(selected?.key===p.key)g.classList.add('is-selected');svg.appendChild(g);
       }
       for(const cluster of layout.clusters){const members=cluster.items.filter(p=>visible.has(p.record.id));if(members.length)svg.appendChild(shapeGroup(members,cluster.x,cluster.y,true));}
@@ -100,6 +108,12 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
     diagnostics.hidden=!warningCount;
     if(warningCount){diagnostics.createEl('summary',{text:`${warningCount} records or relationships need attention`});for(const d of warningList)button(diagnostics,`${d.record.title}: ${d.message}`,()=>details([{record:d.record,layer:{name:'Unassigned'},key:`diagnostic/${d.record.id}`} as PlacedItem]));}
     if(!view.rows.some(r=>r.enabled))canvas.createEl('p',{text:'No visible rows. Add or enable a row in Configure timeline.'});
+    if(view.yearGrid){
+      const height=Math.max(0,canvas.offsetHeight-38),grid=element('svg',{width:plotWidth,height,class:'vt-year-grid','aria-hidden':'true'});
+      grid.style.left=`${gutter}px`;
+      for(const tick of ticks){const x=tickX(tick);grid.appendChild(element('line',{x1:x,x2:x,y1:0,y2:height}));}
+      canvas.prepend(grid);
+    }
     scroll.scrollLeft=previousLeft;scroll.scrollTop=previousTop;
   };
   const zoomBy=(factor:number)=>{
@@ -108,6 +122,11 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
     zoom=Math.max(1,Math.min(32,zoom*factor));if(old===zoom)return;draw();scroll.scrollLeft=gutter+relative*basePlot*zoom-viewport/2;
   };
   button(toolbar,'Fit',()=>{zoom=1;draw();scroll.scrollLeft=0;});button(toolbar,'Zoom in',()=>zoomBy(2));button(toolbar,'Zoom out',()=>zoomBy(.5));
+  const gridLabel=toolbar.createEl('label',{cls:'vt-grid-toggle'}),gridInput=gridLabel.createEl('input',{type:'checkbox'});
+  gridLabel.createSpan({text:'Year lines'});gridInput.checked=view.yearGrid===true;
+  gridInput.onchange=async()=>{const old=view.yearGrid;view.yearGrid=gridInput.checked;draw();gridInput.disabled=true;
+    try{await saveView?.(view);}catch{view.yearGrid=old;gridInput.checked=old===true;draw();hint.textContent='Could not save year-line setting. Please try again.';}finally{gridInput.disabled=false;}
+  };
   const observer=new ResizeObserver(()=>{if(Math.abs(scroll.clientWidth-lastWidth)>1)draw();});observer.observe(scroll);
   draw();
   return {destroy(){dead=true;observer.disconnect();root.removeEventListener('keydown',onKey);root.remove();},setVisible(ids){visible=ids;draw();},zoomBy,fit(){zoom=1;draw();scroll.scrollLeft=0;}};

@@ -266,7 +266,7 @@ function normalizeComposition(value) {
   if (!value || typeof value !== "object") return defaults();
   const raw = value;
   if (!Array.isArray(raw.views) || !raw.views.length) return defaults();
-  const views = raw.views.filter((v) => v && typeof v === "object").map((v) => ({ id: typeof v.id === "string" ? v.id : uid(), name: String(v.name || "Untitled view"), rows: (Array.isArray(v.rows) ? v.rows : []).filter(Boolean).map((r) => ({ id: r.id || uid(), name: String(r.name || "Untitled row"), height: finite(r.height, 220, 120, 1200), anchorOrder: strings(r.anchorOrder), maxSubtracks: Math.round(finite(r.maxSubtracks, 3, 1, 6)), enabled: r.enabled !== false, layers: (Array.isArray(r.layers) ? r.layers : []).filter(Boolean).map((l) => ({ ...newLayer(), id: l.id || uid(), name: String(l.name || "Untitled layer"), enabled: l.enabled !== false, types: strings(l.types), categories: strings(l.categories), tags: strings(l.tags), style: STYLES.includes(l.style) ? l.style : "default", plane: l.plane === "background" ? "background" : "foreground", opacity: finite(l.opacity, 1, 0.1, 1), color: /^#[\da-f]{6}$/i.test(l.color) ? l.color : "#659fa0", labels: ["adaptive", "always", "selection", "hidden"].includes(l.labels) ? l.labels : "adaptive", attachment: normalizeAttachment(l.attachment) })) })) }));
+  const views = raw.views.filter((v) => v && typeof v === "object").map((v) => ({ id: typeof v.id === "string" ? v.id : uid(), name: String(v.name || "Untitled view"), ...v.yearGrid !== void 0 ? { yearGrid: v.yearGrid === true } : {}, rows: (Array.isArray(v.rows) ? v.rows : []).filter(Boolean).map((r) => ({ id: r.id || uid(), name: String(r.name || "Untitled row"), height: finite(r.height, 220, 120, 1200), anchorOrder: strings(r.anchorOrder), maxSubtracks: Math.round(finite(r.maxSubtracks, 3, 1, 6)), enabled: r.enabled !== false, layers: (Array.isArray(r.layers) ? r.layers : []).filter(Boolean).map((l) => ({ ...newLayer(), id: l.id || uid(), name: String(l.name || "Untitled layer"), enabled: l.enabled !== false, types: strings(l.types), categories: strings(l.categories), tags: strings(l.tags), style: STYLES.includes(l.style) ? l.style : "default", plane: l.plane === "background" ? "background" : "foreground", opacity: finite(l.opacity, 1, 0.1, 1), color: /^#[\da-f]{6}$/i.test(l.color) ? l.color : "#659fa0", labels: ["adaptive", "always", "selection", "hidden"].includes(l.labels) ? l.labels : "adaptive", attachment: normalizeAttachment(l.attachment) })) })) }));
   if (!views.length) return defaults();
   const categoryStyles = {};
   for (const [key, style] of Object.entries(raw.categoryStyles || {})) if (STYLES.includes(style)) categoryStyles[key] = style;
@@ -560,7 +560,7 @@ function element(tag, attrs = {}, text2) {
   if (text2) el.textContent = text2;
   return el;
 }
-function renderComposition(parent, view, settings, records, _bounds, open, initialZoom = 1) {
+function renderComposition(parent, view, settings, records, _bounds, open, initialZoom = 1, saveView) {
   const root = parent.createDiv({ cls: "vt-chart" }), toolbar = root.createDiv({ cls: "vt-chart-tools" });
   const button = (host, text2, fn) => {
     const b = host.createEl("button", { text: text2 });
@@ -632,12 +632,14 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     lastWidth = viewport;
     const canvas = scroll.createDiv({ cls: "vt-chart-canvas" });
     canvas.style.width = `${total}px`;
+    const ticks = timeTicks(bounds.min, bounds.max, plotWidth);
+    const tickX = (tick) => 24 + (tick - min) / (bounds.max - min) * (plotWidth - 48);
     const axis = canvas.createDiv({ cls: "vt-sticky-axis" });
     axis.style.width = `${total}px`;
     axis.createDiv({ cls: "vt-axis-corner", text: "History" }).style.width = `${gutter}px`;
     const ruler = element("svg", { width: plotWidth, height: 38, "aria-label": "Shared date scale" });
-    for (const tick of timeTicks(bounds.min, bounds.max, plotWidth)) {
-      const x = 24 + (tick - min) / (bounds.max - min) * (plotWidth - 48);
+    for (const tick of ticks) {
+      const x = tickX(tick);
       ruler.appendChild(element("line", { x1: x, x2: x, y1: 26, y2: 38 }));
       ruler.appendChild(element("text", { x, y: 18, "text-anchor": "middle" }, formatTime(tick, bounds.max - min < 2)));
     }
@@ -697,11 +699,17 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
         const x = p.x, y = centerAt(p.curve, x), g = shapeGroup([p], x, y), attrs = { fill: p.layer.color, opacity: p.layer.opacity };
         if (p.style === "stream" || p.style === "box") {
           if (p.xEnd === p.x) g.appendChild(element("line", { x1: x, x2: x, y1: y - 6, y2: y + 6, stroke: p.layer.color, "stroke-width": 2 }));
-          else g.appendChild(element("path", { ...attrs, d: ribbonPath(p) }));
+          else g.appendChild(element("path", { ...attrs, d: ribbonPath(p), class: p.isAnchor ? "vt-anchor-shape" : "vt-duration-shape" }));
         } else if (p.style === "dot") g.appendChild(element("circle", { ...attrs, cx: x, cy: y, r: 5 }));
         else if (p.style === "line") g.appendChild(element("path", { d: curvePath(p), stroke: p.layer.color, "stroke-width": 2, fill: "none", opacity: p.layer.opacity }));
         else g.appendChild(element("rect", { ...attrs, x, y: p.anchor ? y - 28 : 16, width: Math.max(1, p.xEnd - x), height: p.anchor ? 56 : layout.height - 32 }));
         if (!p.isAnchor && p.style !== "band") g.appendChild(element("path", { d: curvePath(p), stroke: "transparent", "stroke-width": 20, fill: "none", class: "vt-hit-area" }));
+        if (!p.isAnchor && ["box", "stream", "line"].includes(p.style)) for (const boundary of [.../* @__PURE__ */ new Set([p.x, p.xEnd])]) {
+          const cy = centerAt(p.curve, boundary), half = halfAt(p, boundary) + 2;
+          const cap = { x1: boundary, x2: boundary, y1: cy - half, y2: cy + half };
+          g.appendChild(element("line", { ...cap, class: "vt-boundary-under" }));
+          g.appendChild(element("line", { ...cap, class: "vt-item-boundary" }));
+        }
         if ((selected == null ? void 0 : selected.key) === p.key) g.classList.add("is-selected");
         svg.appendChild(g);
       }
@@ -734,6 +742,15 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       for (const d of warningList) button(diagnostics, `${d.record.title}: ${d.message}`, () => details([{ record: d.record, layer: { name: "Unassigned" }, key: `diagnostic/${d.record.id}` }]));
     }
     if (!view.rows.some((r) => r.enabled)) canvas.createEl("p", { text: "No visible rows. Add or enable a row in Configure timeline." });
+    if (view.yearGrid) {
+      const height = Math.max(0, canvas.offsetHeight - 38), grid = element("svg", { width: plotWidth, height, class: "vt-year-grid", "aria-hidden": "true" });
+      grid.style.left = `${gutter}px`;
+      for (const tick of ticks) {
+        const x = tickX(tick);
+        grid.appendChild(element("line", { x1: x, x2: x, y1: 0, y2: height }));
+      }
+      canvas.prepend(grid);
+    }
     scroll.scrollLeft = previousLeft;
     scroll.scrollTop = previousTop;
   };
@@ -752,6 +769,25 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   });
   button(toolbar, "Zoom in", () => zoomBy(2));
   button(toolbar, "Zoom out", () => zoomBy(0.5));
+  const gridLabel = toolbar.createEl("label", { cls: "vt-grid-toggle" }), gridInput = gridLabel.createEl("input", { type: "checkbox" });
+  gridLabel.createSpan({ text: "Year lines" });
+  gridInput.checked = view.yearGrid === true;
+  gridInput.onchange = async () => {
+    const old = view.yearGrid;
+    view.yearGrid = gridInput.checked;
+    draw();
+    gridInput.disabled = true;
+    try {
+      await (saveView == null ? void 0 : saveView(view));
+    } catch (e) {
+      view.yearGrid = old;
+      gridInput.checked = old === true;
+      draw();
+      hint.textContent = "Could not save year-line setting. Please try again.";
+    } finally {
+      gridInput.disabled = false;
+    }
+  };
   const observer = new ResizeObserver(() => {
     if (Math.abs(scroll.clientWidth - lastWidth) > 1) draw();
   });
@@ -851,7 +887,19 @@ var TimelineView = class extends import_obsidian3.ItemView {
       root.querySelectorAll(".vt-body").forEach((el) => el.remove());
       const body = root.createDiv({ cls: "vt-body", attr: { "data-view": view.id } });
       body.createDiv({ cls: "vt-range" });
-      this.chart = renderComposition(body, view, config, this.records, rangeOf(this.records), (p) => this.plugin.openNote(p));
+      this.chart = renderComposition(body, view, config, this.records, rangeOf(this.records), (p) => this.plugin.openNote(p), 1, async (updated) => {
+        var _a2;
+        const saved = (_a2 = this.plugin.settings.composition) == null ? void 0 : _a2.views.find((v) => v.id === updated.id);
+        if (!saved) throw new Error("Saved view unavailable");
+        const previous = saved.yearGrid;
+        saved.yearGrid = updated.yearGrid;
+        try {
+          await this.plugin.saveSettings();
+        } catch (error) {
+          saved.yearGrid = previous;
+          throw error;
+        }
+      });
     }
     const status = root.querySelector(".vt-range");
     if (status) status.textContent = `${records.length} matching records \xB7 ${view.rows.filter((r) => r.enabled).length} rows \xB7 select an item for details`;
@@ -973,6 +1021,7 @@ var CompositionModal = class extends import_obsidian5.Modal {
       });
     });
     new import_obsidian5.Setting(c).setName("View name").addText((t) => t.setValue(view.name).onChange((v) => view.name = v));
+    new import_obsidian5.Setting(c).setName("Full-height year lines").setDesc("Extend the date ruler ticks vertically behind every row. Saved separately for each view.").addToggle((t) => t.setValue(view.yearGrid === true).onChange((v) => view.yearGrid = v));
     const viewActions = c.createDiv({ cls: "vt-editor-actions" });
     this.button(viewActions, "New view", () => {
       const v = { id: uid(), name: "New view", rows: [newRow()] };

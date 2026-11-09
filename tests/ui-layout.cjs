@@ -16,6 +16,15 @@ assert.equal(await page.locator('.vt-adaptive-label').count(),expectedNames,'Eve
 const heights=await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height));
 assert.ok(await page.locator('.vt-chart-canvas').evaluate(e=>e.getBoundingClientRect().height)<=600);
 const overlaps=await page.evaluate(()=>[...document.querySelectorAll('.vt-composition-svg')].flatMap(svg=>{const boxes=[...svg.querySelectorAll('.vt-adaptive-label')].map(e=>e.getBoundingClientRect());return boxes.flatMap((b,i)=>boxes.slice(i+1).filter(c=>b.left<c.right&&b.right>c.left&&b.top<c.bottom&&b.bottom>c.top));}).length);assert.equal(overlaps,0);
+const pathsBefore=await page.locator('.vt-duration-shape').evaluateAll(es=>es.map(e=>e.getAttribute('d')));
+assert.ok(await page.locator('.vt-item-boundary').count()>=pathsBefore.length*2,'Visible reigns need start and end boundary marks');
+await page.getByLabel('Year lines',{exact:true}).check();
+assert.equal(await page.locator('.vt-year-grid').count(),1);
+const aligned=await page.evaluate(()=>{const grid=[...document.querySelectorAll('.vt-year-grid line')],ruler=[...document.querySelectorAll('.vt-sticky-axis svg line')];return grid.length===ruler.length&&grid.every((l,i)=>l.getAttribute('x1')===ruler[i].getAttribute('x1'));});assert.ok(aligned);
+assert.ok(await page.locator('.vt-year-grid').evaluate(e=>Number(e.getAttribute('height'))===e.parentElement.offsetHeight-38),'Grid extends from the axis to the canvas bottom');
+await page.getByLabel('Year lines',{exact:true}).uncheck();assert.equal(await page.locator('.vt-year-grid').count(),0);
+assert.deepEqual(await page.locator('.vt-duration-shape').evaluateAll(es=>es.map(e=>e.getAttribute('d'))),pathsBefore,'Grid toggling cannot move historical items');
+await page.getByLabel('Year lines',{exact:true}).check();
 await page.screenshot({path:path.join(process.env.TEMP,'timeline-v140-desktop.png'),fullPage:true});
 const laneBefore=await page.locator('[data-records]').evaluateAll(es=>Object.fromEntries(es.map(e=>[e.getAttribute('data-key'),[e.getAttribute('data-lane'),e.getAttribute('data-track')]])));
 await page.evaluate(id=>chart.setVisible(new Set([id])),records[0].id);assert.equal(await page.locator('[data-records]').count(),1);

@@ -12,6 +12,10 @@ assert.equal(formatTime(0),'1 BC');assert.equal(formatTime(1),'AD 1');assert.equ
 assert.deepEqual(relations({relations:{related_to:['[[K]]']},related_to:['[[L]]']}).related_to,['K','L']);
 const config=defaults();assert.equal(config.version,2);assert.deepEqual(JSON.parse(JSON.stringify(normalizeComposition(config))),JSON.parse(JSON.stringify(config)));
 const v1=JSON.parse(JSON.stringify(config));v1.version=1;delete v1.views[0].rows[0].anchorOrder;delete v1.views[0].rows[0].maxSubtracks;
+const gridConfig=JSON.parse(JSON.stringify(config));gridConfig.views[0].yearGrid=true;
+assert.equal(normalizeComposition(gridConfig).views[0].yearGrid,true);
+gridConfig.views[0].yearGrid='true';assert.equal(normalizeComposition(gridConfig).views[0].yearGrid,false);
+assert.equal(normalizeComposition(config).views[0].yearGrid,undefined,'Existing views keep grid off until enabled');
 const upgraded=normalizeComposition(v1);assert.equal(upgraded.version,2);assert.equal(upgraded.views[0].id,v1.views[0].id);assert.equal(upgraded.views[0].rows[0].maxSubtracks,3);
 const rel=()=>({preceded_by:[],continued_from:[],split_into:[],succeeded_by:[],merged_into:[],related_to:[],contemporary_with:[]});
 const record=(id,type,start,end,links={})=>({id,title:id,type:'visual-timeline-'+type,path:id+'.md',file:{basename:id},categories:[type],tags:['#history'],aliases:[],date:{start,end},relations:{...rel(),...links}});

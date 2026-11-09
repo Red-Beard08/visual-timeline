@@ -163,7 +163,7 @@ function cubicSection(from:number,to:number,f:(x:number)=>number):string {
   const c1=3*b-1.5*c-5*a/6+e/3,c2=3*c-1.5*b+a/3-5*e/6;
   return `C ${from+d/3},${c1} ${from+2*d/3},${c2} ${to},${e}`;
 }
-function halfAt(p:PlacedItem,x:number):number {
+export function halfAt(p:PlacedItem,x:number):number {
   if(!p.isAnchor){const t=Math.max(0,Math.min(1,(x-p.curve.start)/Math.max(.001,p.curve.settle-p.curve.start)));return p.half*(p.anchor?(p.curve.initialScale??1)+(1-(p.curve.initialScale??1))*t:1);}
   const t=Math.max(0,Math.min(1,(x-p.x)/Math.max(.001,p.curve.settle-p.x)));
   let half=p.initialHalf+(p.half-p.initialHalf)*t;

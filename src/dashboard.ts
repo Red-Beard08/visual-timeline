@@ -35,7 +35,11 @@ export class TimelineView extends ItemView {
     if(root.querySelector('.vt-body')?.getAttribute('data-view')!==view.id){
       this.chart?.destroy();root.querySelectorAll('.vt-body').forEach(el=>el.remove());
       const body=root.createDiv({cls:'vt-body',attr:{'data-view':view.id}});body.createDiv({cls:'vt-range'});
-      this.chart=renderComposition(body,view,config,this.records,rangeOf(this.records),p=>this.plugin.openNote(p));
+      this.chart=renderComposition(body,view,config,this.records,rangeOf(this.records),p=>this.plugin.openNote(p),1,async updated=>{
+        const saved=this.plugin.settings.composition?.views.find(v=>v.id===updated.id);if(!saved)throw new Error('Saved view unavailable');
+        const previous=saved.yearGrid;saved.yearGrid=updated.yearGrid;
+        try{await this.plugin.saveSettings();}catch(error){saved.yearGrid=previous;throw error;}
+      });
     }
     const status=root.querySelector('.vt-range');if(status)status.textContent=`${records.length} matching records · ${view.rows.filter(r=>r.enabled).length} rows · select an item for details`;
     this.chart?.setVisible(new Set(records.map(r=>r.id)));

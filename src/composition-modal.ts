@@ -17,6 +17,7 @@ export class CompositionModal extends Modal {
     const view=this.draft.views.find(v=>v.id===this.draft.active)!;
     new Setting(c).setName('Saved view').addDropdown(d=>{for(const v of this.draft.views)d.addOption(v.id,v.name);d.setValue(view.id).onChange(id=>{this.draft.active=id;this.draw();});});
     new Setting(c).setName('View name').addText(t=>t.setValue(view.name).onChange(v=>view.name=v));
+    new Setting(c).setName('Full-height year lines').setDesc('Extend the date ruler ticks vertically behind every row. Saved separately for each view.').addToggle(t=>t.setValue(view.yearGrid===true).onChange(v=>view.yearGrid=v));
     const viewActions=c.createDiv({cls:'vt-editor-actions'});
     this.button(viewActions,'New view',()=>{const v={id:uid(),name:'New view',rows:[newRow()]};this.draft.views.push(v);this.draft.active=v.id;this.draw();});
     this.button(viewActions,'Duplicate view',()=>{const v=JSON.parse(JSON.stringify(view));v.id=uid();v.name+=' copy';this.draft.views.push(v);this.draft.active=v.id;this.draw();});

@@ -11,7 +11,7 @@ export interface TimelineLayer {
   opacity: number; color: string; labels: 'adaptive' | 'always' | 'selection' | 'hidden';
 }
 export interface TimelineRow {anchorOrder?: string[]; maxSubtracks?: number;id: string; name: string; height: number; enabled: boolean; layers: TimelineLayer[];}
-export interface Composition {id: string; name: string; rows: TimelineRow[];}
+export interface Composition {id: string; name: string; rows: TimelineRow[]; yearGrid?: boolean;}
 export interface CompositionSettings {version: 2; active: string; views: Composition[]; categoryStyles: Record<string,DisplayStyle>;}
 export const STYLES: DisplayStyle[] = ['stream','line','dot','box','band'];
 export const uid = ():string => `view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
@@ -35,7 +35,7 @@ export function normalizeComposition(value:unknown):CompositionSettings {
   if(!value || typeof value!=='object')return defaults();
   const raw=value as Partial<CompositionSettings>;
   if(!Array.isArray(raw.views)||!raw.views.length)return defaults();
-  const views=raw.views.filter(v=>v&&typeof v==='object').map(v=>({id:typeof v.id==='string'?v.id:uid(),name:String(v.name||'Untitled view'),rows:(Array.isArray(v.rows)?v.rows:[]).filter(Boolean).map(r=>({id:r.id||uid(),name:String(r.name||'Untitled row'),height:finite(r.height,220,120,1200),anchorOrder:strings(r.anchorOrder),maxSubtracks:Math.round(finite(r.maxSubtracks,3,1,6)),enabled:r.enabled!==false,layers:(Array.isArray(r.layers)?r.layers:[]).filter(Boolean).map(l=>({...newLayer(),id:l.id||uid(),name:String(l.name||'Untitled layer'),enabled:l.enabled!==false,types:strings(l.types),categories:strings(l.categories),tags:strings(l.tags),style:STYLES.includes(l.style as DisplayStyle)?l.style:'default',plane:l.plane==='background'?'background':'foreground',opacity:finite(l.opacity,1,.1,1),color:/^#[\da-f]{6}$/i.test(l.color)?l.color:'#659fa0',labels:['adaptive','always','selection','hidden'].includes(l.labels)?l.labels:'adaptive',attachment:normalizeAttachment(l.attachment)} as TimelineLayer))}))}));
+  const views=raw.views.filter(v=>v&&typeof v==='object').map(v=>({id:typeof v.id==='string'?v.id:uid(),name:String(v.name||'Untitled view'),...(v.yearGrid!==undefined?{yearGrid:v.yearGrid===true}:{}),rows:(Array.isArray(v.rows)?v.rows:[]).filter(Boolean).map(r=>({id:r.id||uid(),name:String(r.name||'Untitled row'),height:finite(r.height,220,120,1200),anchorOrder:strings(r.anchorOrder),maxSubtracks:Math.round(finite(r.maxSubtracks,3,1,6)),enabled:r.enabled!==false,layers:(Array.isArray(r.layers)?r.layers:[]).filter(Boolean).map(l=>({...newLayer(),id:l.id||uid(),name:String(l.name||'Untitled layer'),enabled:l.enabled!==false,types:strings(l.types),categories:strings(l.categories),tags:strings(l.tags),style:STYLES.includes(l.style as DisplayStyle)?l.style:'default',plane:l.plane==='background'?'background':'foreground',opacity:finite(l.opacity,1,.1,1),color:/^#[\da-f]{6}$/i.test(l.color)?l.color:'#659fa0',labels:['adaptive','always','selection','hidden'].includes(l.labels)?l.labels:'adaptive',attachment:normalizeAttachment(l.attachment)} as TimelineLayer))}))}));
   if(!views.length)return defaults();
   const categoryStyles:Record<string,DisplayStyle>={};
   for(const [key,style] of Object.entries(raw.categoryStyles||{}))if(STYLES.includes(style))categoryStyles[key]=style;
