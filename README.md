@@ -8,4 +8,23 @@ The first release is timeline-first. Geographic fields and a local map asset set
 
 ## Flowing kingdom streams
 
-Version 1.2 draws kingdoms as filled SVG ribbons, with explicit successors branching from the parent stream. Dates still determine horizontal positions; ribbon width is decorative, not a population or power measurement. Select a ribbon (or focus it and press Enter) to open its note. Narrow screens can scroll the chart horizontally. People, events, and relationship details are available in an expandable section below the streams.
+Kingdoms can be drawn as filled SVG ribbons, with explicit successors branching from the parent stream. Dates determine horizontal positions; ribbon width is decorative, not a population or power measurement. Select a shape (or focus it and press Enter) to open its note. Narrow screens can scroll the chart horizontally.
+
+## Rows, layers, and saved views (1.3)
+
+Open **Configure timeline** on the dashboard, or run `visual-timeline:configure-timeline`.
+
+- Add any number of named rows, change their numeric position, set minimum height, or hide/remove them. Rows grow to accommodate collision lanes instead of clipping records.
+- Add layers to each row. Filter by note type, category, and tag. An empty filter means all; choices within a group match any value, while groups combine with AND.
+- Place layers in the background or foreground. Numeric order controls stacking within each plane; backgrounds always draw first. Move layers between rows without rebuilding their filters.
+- Choose streams, lines, dots, boxes/duration bars, or shaded bands. Set color, opacity, and label visibility. Dots mark the start date, while the other styles show duration.
+- Set category display defaults, then let individual layers inherit or override them. The first configured category in a note's category list wins; the note type is the fallback.
+- Save, duplicate, rename, and remove compositions. Cancel discards the entire editing draft. All changes are stored in plugin settings, never in historical notes.
+
+Three initial views are included: **Kingdom succession**, **Separate rows**, and **Kings and kingdoms**. Select a view beside search. To show only battles rather than all events, choose your battle category/tag in the event layer.
+
+All rows share one date scale and horizontal scroll surface. Search and filters do not shift the scale. Zoom expands the canvas. Foreground collisions stack in internal lanes; background layers deliberately overlay. Explicit stream links are drawn only between visible records in the same layer whose parent end and successor start dates meet. No historical relationship is inferred.
+
+## Validation
+
+Run `npm ci` and `npm test` for type checking, production build, date utilities, stream geometry, composition persistence/filtering/order/collision checks, and portability validation. Optional `npm run test:ui` requires Playwright and Chrome (Playwright can be supplied via `NODE_PATH`). It renders synthetic data, tests Save/Cancel and keyboard navigation, and checks a narrow editor; it does not replace desktop Obsidian or real iOS testing.

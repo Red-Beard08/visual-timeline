@@ -1,8 +1,8 @@
 {
   "name": "visual-timeline",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "main": "main.js",
-  "scripts": {"build": "node esbuild.config.mjs production", "typecheck": "tsc --noEmit", "test": "npm run typecheck && npm run build && node tests/test-utils.mjs && node tests/test-streams.mjs && node scripts/validate-portability.mjs"},
+  "scripts": {"build": "node esbuild.config.mjs production", "typecheck": "tsc --noEmit", "test": "npm run typecheck && npm run build && node tests/test-utils.mjs && node tests/test-streams.mjs && node tests/test-composition.mjs && node scripts/validate-portability.mjs", "test:ui": "node tests/ui-smoke.cjs"},
   "author": "Red-Beard",
   "license": "MIT",
   "devDependencies": {"builtin-modules": "^4.0.0", "esbuild": "^0.25.0", "obsidian": "latest", "typescript": "^5.7.0"}

@@ -1,115 +1,40 @@
-import {ItemView, WorkspaceLeaf} from "obsidian";
-import type {TimelineRecord} from "./types";
-import type VisualTimeline from "./main";
-import {dateValue, rangeOf} from "./utils";
-
-import {renderStreams} from "./streams";
-
-export const VIEW = "visual-timeline-dashboard";
-
+import {ItemView, WorkspaceLeaf, Notice} from 'obsidian';
+import type {TimelineRecord} from './types';
+import type VisualTimeline from './main';
+import {rangeOf} from './utils';
+import {normalizeComposition} from './composition';
+import {renderComposition} from './composition-renderer';
+export const VIEW='visual-timeline-dashboard';
 export class TimelineView extends ItemView {
-  private query = "";
-  private layer = "";
-  private records: TimelineRecord[] = [];
-
-  constructor(leaf: WorkspaceLeaf, private plugin: VisualTimeline) { super(leaf); }
-  getViewType(): string { return VIEW; }
-  getDisplayText(): string { return "Visual Timeline"; }
-  async onOpen(): Promise<void> { await this.render(); }
-
-  async render(): Promise<void> {
-    const root = this.containerEl.children[1] as HTMLElement;
-    root.empty();
-    root.addClass("visual-timeline-dashboard");
-    this.records = await this.plugin.repository.all();
-    const hero = root.createDiv({cls: "vt-hero"});
-    hero.createEl("div", {cls: "vt-eyebrow", text: "RED-BEARD · VISUAL HISTORY"});
-    hero.createEl("h1", {text: "Visual Timeline"});
-    hero.createEl("p", {text: "See events, eras, kingdoms, and explicit historical streams in one local, searchable view."});
-    const actions = hero.createDiv({cls: "vt-actions"});
-    this.button(actions, "New timeline event", () => this.plugin.openNewEvent());
-    this.button(actions, "Refresh", () => void this.render());
-    this.button(actions, "Settings", () => this.plugin.openSettings());
-    const controls = root.createDiv({cls: "vt-controls"});
-    const search = controls.createEl("input", {type: "search", placeholder: "Search events, entities, tags, or places", attr: {"aria-label": "Search timeline"}});
-    search.value = this.query;
-    search.oninput = () => { this.query = search.value; this.draw(root); };
-    const select = controls.createEl("select", {attr: {"aria-label": "Filter by layer"}});
-    select.createEl("option", {text: "All layers", value: ""});
-    for (const layer of this.plugin.settings.layers) select.createEl("option", {text: layer, value: layer});
-    select.value = this.layer;
-    select.onchange = () => { this.layer = select.value; this.draw(root); };
+  private query='';private layer='';private zoom=1;private records:TimelineRecord[]=[];
+  constructor(leaf:WorkspaceLeaf,private plugin:VisualTimeline){super(leaf);}
+  getViewType():string{return VIEW;}
+  getDisplayText():string{return 'Visual Timeline';}
+  async onOpen():Promise<void>{await this.render();}
+  async render():Promise<void>{
+    const root=this.containerEl.children[1] as HTMLElement;root.empty();root.addClass('visual-timeline-dashboard');
+    this.records=await this.plugin.repository.all();
+    const hero=root.createDiv({cls:'vt-hero'});hero.createEl('h1',{text:'Visual Timeline'});
+    const actions=hero.createDiv({cls:'vt-actions'});
+    this.button(actions,'New timeline event',()=>this.plugin.openNewEvent());
+    this.button(actions,'Configure timeline',()=>void this.plugin.openComposition());
+    this.button(actions,'Refresh',()=>void this.render());this.button(actions,'Settings',()=>this.plugin.openSettings());
+    const controls=root.createDiv({cls:'vt-controls'});
+    const search=controls.createEl('input',{type:'search',placeholder:'Search events, entities, tags, or places',attr:{'aria-label':'Search timeline'}});search.value=this.query;search.oninput=()=>{this.query=search.value;this.draw(root);};
+    const config=normalizeComposition(this.plugin.settings.composition);
+    const views=controls.createEl('select',{attr:{'aria-label':'Saved composition'}});config.views.forEach(v=>views.createEl('option',{text:v.name,value:v.id}));views.value=config.active;
+    views.onchange=()=>{const old=config.active;config.active=views.value;this.plugin.settings.composition=config;void this.plugin.saveSettings().then(()=>this.draw(root)).catch(()=>{config.active=old;views.value=old;new Notice('Could not save selected view.');});};
+    const select=controls.createEl('select',{attr:{'aria-label':'Filter by note layer'}});select.createEl('option',{text:'All note layers',value:''});for(const l of [...new Set([...this.plugin.settings.layers,...this.records.flatMap(r=>r.layers)])])select.createEl('option',{text:l,value:l});select.value=this.layer;select.onchange=()=>{this.layer=select.value;this.draw(root);};
+    const zoom=controls.createEl('select',{attr:{'aria-label':'Timeline zoom'}});[1,2,4].forEach(v=>zoom.createEl('option',{text:`${v}× zoom`,value:String(v)}));zoom.value=String(this.zoom);zoom.onchange=()=>{this.zoom=Number(zoom.value);this.draw(root);};
     this.draw(root);
   }
-
-  private draw(root: HTMLElement): void {
-    root.querySelectorAll(".vt-body").forEach(el => el.remove());
-    const body = root.createDiv({cls: "vt-body"});
-    const q = this.query.toLocaleLowerCase();
-    const records = this.records.filter(r => (!q || `${r.title} ${r.tags.join(" ")} ${r.categories.join(" ")} ${r.locations.join(" ")} ${r.entities.join(" ")}`.toLocaleLowerCase().includes(q)) && (!this.layer || r.layers.includes(this.layer)));
-    if (!records.length) { body.createDiv({cls: "vt-empty", text: "No timeline records match this view."}); return; }
-    const bounds = rangeOf(records);
-    body.createDiv({cls: "vt-range", text: `${records.length} records · ${bounds.min < 0 ? `${Math.abs(bounds.min)} BC` : bounds.min} → ${bounds.max < 0 ? `${Math.abs(bounds.max)} BC` : bounds.max}`});
-    const axis = body.createDiv({cls: "vt-axis"});
-    [0, .25, .5, .75, 1].forEach(position => {
-      const tick = axis.createDiv({cls: "vt-axis-tick"});
-      tick.style.left = `${position * 100}%`;
-      tick.createSpan({text: this.formatYear(bounds.min + (bounds.max - bounds.min) * position)});
-    });
-
-    const kingdoms = records.filter(record => record.type === "visual-timeline-kingdom");
-    if (kingdoms.length) this.renderKingdomChart(body, kingdoms, bounds);
-
-    const detailRecords = records.filter(record => record.type !== "visual-timeline-kingdom");
-    const lanes = new Map<string, TimelineRecord[]>();
-    for (const record of detailRecords) {
-      const lane = record.layers[0] || record.type.replace("visual-timeline-", "");
-      if (!lanes.has(lane)) lanes.set(lane, []);
-      lanes.get(lane)!.push(record);
-    }
-    const details = body.createEl("details");
-    details.createEl("summary", {text: "People, events and relationship details"});
-    if (!kingdoms.length || q) details.open = true;
-    const graph = details.createDiv({cls: "vt-graph"});
-    for (const [laneName, laneRecords] of lanes) {
-      const lane = graph.createDiv({cls: "vt-lane"});
-      lane.createDiv({cls: "vt-lane-label", text: laneName});
-      const track = lane.createDiv({cls: "vt-track"});
-      for (const record of laneRecords) this.renderRecord(track, record, bounds);
-    }
-
-    const relationRecords = records.filter(r => Object.values(r.relations).some(v => v.length));
-    if (relationRecords.length) {
-      const rel = details.createDiv({cls: "vt-relations"});
-      rel.createEl("h2", {text: "Explicit relationships"});
-      for (const record of relationRecords.slice(0, 12)) {
-        const row = rel.createDiv({cls: "vt-relation-row"});
-        row.createEl("strong", {text: record.title});
-        const labels: string[] = [];
-        for (const [key, values] of Object.entries(record.relations)) if (values.length) labels.push(`${key.replace(/_/g, " ")}: ${values.join(", ")}`);
-        row.createEl("span", {text: labels.join(" · ")});
-      }
-    }
+  private draw(root:HTMLElement):void {
+    root.querySelectorAll('.vt-body').forEach(el=>el.remove());const body=root.createDiv({cls:'vt-body'});
+    const q=this.query.toLocaleLowerCase();const records=this.records.filter(r=>(!q||`${r.title} ${r.tags.join(' ')} ${r.categories.join(' ')} ${r.locations.join(' ')} ${r.entities.join(' ')}`.toLocaleLowerCase().includes(q))&&(!this.layer||r.layers.includes(this.layer)));
+    if(!records.length){body.createEl('p',{cls:'vt-empty',text:'No timeline records match this view.'});return;}
+    const config=normalizeComposition(this.plugin.settings.composition),view=config.views.find(v=>v.id===config.active)!;
+    body.createDiv({cls:'vt-range',text:`${records.length} matching records · ${view.rows.filter(r=>r.enabled).length} visible rows · select a shape to open its note`});
+    renderComposition(body,view,config,records,rangeOf(this.records),p=>this.plugin.openNote(p),this.zoom);
   }
-
-  private renderRecord(track: HTMLElement, record: TimelineRecord, bounds: {min: number; max: number}): void {
-    const start = dateValue(record.date.start), end = dateValue(record.date.end || record.date.start);
-    const left = Math.max(0, Math.min(100, (start - bounds.min) / (bounds.max - bounds.min) * 100));
-    const width = Math.max(2, Math.min(96, (Math.max(end, start + 1) - start) / (bounds.max - bounds.min) * 100));
-    const card = track.createDiv({cls: "vt-record", attr: {tabindex: "0", "aria-label": `${record.title}, ${record.date.display || record.date.start}`}});
-    card.style.left = `${left}%`;
-    card.style.width = `${width}%`;
-    card.createEl("strong", {text: record.title});
-    card.createEl("small", {text: record.date.display || record.date.start});
-    if (record.date.circa) card.addClass("is-circa");
-    card.onclick = () => this.plugin.openNote(record.path);
-    card.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.plugin.openNote(record.path); } };
-  }
-
-  private renderKingdomChart(parent: HTMLElement, records: TimelineRecord[], bounds: {min: number; max: number}): void {
-    renderStreams(parent, records, bounds, path => this.plugin.openNote(path));
-  }
-
-  private formatYear(value: number): string { const year = Math.round(value); return year < 0 ? `${Math.abs(year)} BC` : `AD ${year || 1}`; }
-  private button(parent: HTMLElement, label: string, action: () => void): void { const b = parent.createEl("button", {text: label}); b.onclick = action; }
+  private button(parent:HTMLElement,label:string,action:()=>void):void{const b=parent.createEl('button',{text:label});b.onclick=action;}
 }
