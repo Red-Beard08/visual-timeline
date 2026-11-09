@@ -8,7 +8,11 @@ The first release is timeline-first. Geographic fields and a local map asset set
 
 ## Flowing kingdom streams
 
-Kingdoms can be drawn as filled SVG ribbons, with explicit successors branching from the parent stream. Dates determine horizontal positions; ribbon width is decorative, not a population or power measurement. Select a shape (or focus it and press Enter) to open its note. Narrow screens can scroll the chart horizontally.
+Kingdoms can be drawn as filled SVG ribbons, with explicit successors branching from the parent stream. Dates determine horizontal positions; ribbon width is decorative, not a population or power measurement. Select a shape (or focus it and press Enter) for details and an Open note action. Narrow screens can scroll the chart horizontally.
+
+## Relationship-aware layout (1.4)
+
+In Configure timeline, attach a layer to another layer using explicit relationships, and optionally provide per-record anchor overrides. Unresolved or ambiguous attachments appear in an Unassigned lane with diagnostics. Adaptive labels never shift historical positions; overlapping items remain accessible in selectable count markers. Fit and zoom control horizontal scale without changing lane height. Selection opens an inspector, rather than immediately navigating away. Settings upgrade in memory without rewriting historical notes.
 
 ## Rows, layers, and saved views (1.3)
 

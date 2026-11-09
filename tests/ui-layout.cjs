@@ -1,0 +1,35 @@
+// Real-data visual QA. Inputs stay local and are never bundled into the plugin.
+const {chromium}=require('playwright');const {build}=require('esbuild');
+const {readFileSync}=require('node:fs');const path=require('node:path');const assert=require('node:assert/strict');
+(async()=>{
+const records=JSON.parse(readFileSync(process.env.UI_RECORDS,'utf8')),config=JSON.parse(readFileSync(process.env.UI_COMPOSITION,'utf8'));
+const bundle=await build({stdin:{contents:`import {renderComposition} from './src/composition-renderer';window.start=(records,config)=>{window.opened=[];window.chart=renderComposition(document.querySelector('#chart'),config.views[0],config,records,{min:0,max:1},p=>window.opened.push(p));};`,resolveDir:process.cwd(),loader:'ts'},bundle:true,write:false,format:'iife'});
+const browser=await chromium.launch({headless:true,channel:'chrome'});
+try{const page=await browser.newPage({viewport:{width:1440,height:900}});
+await page.setContent(`<style>:root{--background-primary:#202020;--background-secondary:#272727;--background-modifier-border:#484848;--text-normal:#eee;--text-muted:#bbb;--interactive-accent:#b88d65}body{background:var(--background-primary);color:var(--text-normal);font:14px Arial;margin:16px}button,input,select{background:var(--background-secondary);color:var(--text-normal);border:1px solid var(--background-modifier-border);border-radius:5px;padding:8px}*{box-sizing:border-box}${readFileSync('styles.css','utf8')}</style><h1>Visual Timeline</h1><div id="chart"></div>`);
+await page.evaluate(()=>{HTMLElement.prototype.createEl=function(tag,o={}){const el=document.createElement(tag);if(o.cls)el.className=o.cls;if(o.text)el.textContent=o.text;for(const k of ['type','value','placeholder'])if(o[k]!==undefined)el[k]=o[k];for(const [k,v]of Object.entries(o.attr||{}))el.setAttribute(k,v);this.appendChild(el);return el;};HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o);};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o);};HTMLElement.prototype.empty=function(){this.replaceChildren();};HTMLElement.prototype.addClass=function(n){this.classList.add(n);};});
+await page.addScriptTag({content:bundle.outputFiles[0].text});await page.evaluate(({records,config})=>start(records,config),{records,config});
+await page.waitForFunction(()=>document.querySelector('.vt-composed-record'));
+const count=await page.evaluate(()=>new Set([...document.querySelectorAll('[data-records]')].flatMap(e=>e.getAttribute('data-records').split('|'))).size);assert.equal(count,records.length);
+const heights=await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height));
+assert.ok(await page.locator('.vt-chart-canvas').evaluate(e=>e.getBoundingClientRect().height)<=600);
+const overlaps=await page.evaluate(()=>[...document.querySelectorAll('.vt-composition-svg')].flatMap(svg=>{const boxes=[...svg.querySelectorAll('.vt-adaptive-label')].map(e=>e.getBoundingClientRect());return boxes.flatMap((b,i)=>boxes.slice(i+1).filter(c=>b.left<c.right&&b.right>c.left&&b.top<c.bottom&&b.bottom>c.top));}).length);assert.equal(overlaps,0);
+await page.screenshot({path:path.join(process.env.TEMP,'timeline-v140-desktop.png'),fullPage:true});
+const laneBefore=await page.locator('[data-records]').evaluateAll(es=>Object.fromEntries(es.map(e=>[e.getAttribute('data-key'),[e.getAttribute('data-lane'),e.getAttribute('data-track')]])));
+await page.evaluate(id=>chart.setVisible(new Set([id])),records[0].id);assert.equal(await page.locator('[data-records]').count(),1);
+await page.evaluate(rs=>chart.setVisible(new Set(rs.map(r=>r.id))),records);
+assert.deepEqual(await page.locator('[data-records]').evaluateAll(es=>Object.fromEntries(es.map(e=>[e.getAttribute('data-key'),[e.getAttribute('data-lane'),e.getAttribute('data-track')]]))),laneBefore);
+await page.getByRole('button',{name:'Zoom in',exact:true}).click();assert.deepEqual(await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height)),heights);
+await page.locator('.vt-composed-record').first().focus();const before=await page.locator('.vt-chart-scroll').evaluate(e=>[e.scrollLeft,e.scrollTop]);await page.keyboard.press('Enter');
+assert.ok(await page.locator('.vt-inspector').isVisible());assert.equal(await page.evaluate(()=>opened.length),0);assert.deepEqual(await page.locator('.vt-chart-scroll').evaluate(e=>[e.scrollLeft,e.scrollTop]),before);
+await page.getByRole('button',{name:'Open note',exact:true}).click();assert.equal(await page.evaluate(()=>opened.length),1);await page.keyboard.press('Escape');
+await page.getByRole('button',{name:'Fit',exact:true}).click();
+await page.evaluate(()=>{const s=document.documentElement.style;s.setProperty('--background-primary','#fafafa');s.setProperty('--background-secondary','#f2f2f2');s.setProperty('--background-modifier-border','#ccc');s.setProperty('--text-normal','#222');s.setProperty('--text-muted','#555');});
+await page.screenshot({path:path.join(process.env.TEMP,'timeline-v140-light.png'),fullPage:true});
+await page.setViewportSize({width:390,height:844});await page.waitForTimeout(100);assert.deepEqual(await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height)),heights);
+await page.locator('.vt-composed-record').first().focus();await page.keyboard.press('Enter');await page.screenshot({path:path.join(process.env.TEMP,'timeline-v140-mobile.png'),fullPage:true});
+assert.ok(await page.getByRole('button',{name:'Close',exact:true}).isVisible());await page.getByRole('button',{name:'Close',exact:true}).click();
+await page.locator('.vt-chart-scroll').evaluate(e=>{e.scrollTop=100;e.scrollLeft=100;});const sticky=await page.evaluate(()=>{const frame=document.querySelector('.vt-chart-scroll').getBoundingClientRect(),axis=document.querySelector('.vt-sticky-axis').getBoundingClientRect();return Math.abs(axis.top-frame.top);});assert.ok(sticky<=2);
+console.log(JSON.stringify({covered:count,heights,labelOverlaps:overlaps,desktop:true,narrow:true,selection:true,filterStability:true,stickyAxis:true}));
+}finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exit(1);});

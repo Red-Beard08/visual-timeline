@@ -1,7 +1,7 @@
 import {Modal,Notice,Setting} from 'obsidian';
 import type VisualTimeline from './main';
 import type {TimelineRecord} from './types';
-import {CompositionSettings,DisplayStyle,TimelineLayer,STYLES,newLayer,newRow,uid,reorder,normalizeComposition} from './composition';
+import {CompositionSettings,DisplayStyle,TimelineLayer,STYLES,newLayer,newRow,uid,reorder,normalizeComposition,matches} from './composition';
 import {RECORD_TYPES} from './utils';
 
 /** Transactional editor: every control edits a private draft; Cancel never writes. */
@@ -27,7 +27,10 @@ export class CompositionModal extends Modal {
       this.button(header,'Remove row',()=>{view.rows.splice(index,1);this.draw();});
       new Setting(section).setName('Row name').addText(t=>t.setValue(row.name).onChange(v=>row.name=v));
       new Setting(section).setName('Position').setDesc('1 is the first row. Changing the number shifts the other rows.').addText(t=>{t.inputEl.type='number';t.inputEl.min='1';t.inputEl.max=String(view.rows.length);t.setValue(String(index+1));t.inputEl.onchange=()=>{reorder(view.rows,index,(Number(t.getValue())||1)-1);this.draw();};});
-      new Setting(section).setName('Minimum height').setDesc('Pixels at base zoom. Grows automatically to prevent overlapping labels.').addText(t=>{t.inputEl.type='number';t.inputEl.min='120';t.inputEl.max='1200';t.setValue(String(row.height)).onChange(v=>row.height=Math.max(120,Math.min(1200,Number(v)||220)));});
+      new Setting(section).setName('Minimum height').setDesc('CSS pixels, independent of zoom. Only historical lanes add height, never labels.').addText(t=>{t.inputEl.type='number';t.inputEl.min='120';t.inputEl.max='1200';t.setValue(String(row.height)).onChange(v=>row.height=Math.max(120,Math.min(1200,Number(v)||220)));});
+      new Setting(section).setName('Visible overlap tracks').setDesc('Additional overlaps become selectable count markers.').addDropdown(d=>{[1,2,3,4,5,6].forEach(n=>d.addOption(String(n),String(n)));d.setValue(String(row.maxSubtracks||3)).onChange(v=>row.maxSubtracks=Number(v));});
+      const order=section.createEl('details');order.createEl('summary',{text:'Anchor ordering'});
+      new Setting(order).setName('Anchor IDs in preferred order').setDesc('Comma-separated stable IDs; unspecified anchors use date and ID order.').addText(t=>t.setValue((row.anchorOrder||[]).join(', ')).onChange(v=>row.anchorOrder=v.split(',').map(s=>s.trim()).filter(Boolean)));
       new Setting(section).setName('Show row').addToggle(t=>t.setValue(row.enabled).onChange(v=>row.enabled=v));
       row.layers.forEach((layer,i)=>{
         const details=section.createEl('details',{cls:'vt-layer-editor'});
@@ -37,11 +40,20 @@ export class CompositionModal extends Modal {
         new Setting(details).setName('Position within plane').setDesc('Layers later in the list draw on top. Backgrounds always stay behind foregrounds.').addText(t=>{t.inputEl.type='number';t.inputEl.min='1';t.inputEl.max=String(row.layers.length);t.setValue(String(i+1));t.inputEl.onchange=()=>{reorder(row.layers,i,(Number(t.getValue())||1)-1);this.draw();};});
         new Setting(details).setName('Move to row').addDropdown(d=>{view.rows.forEach(r=>d.addOption(r.id,r.name));d.setValue(row.id).onChange(id=>{const destination=view.rows.find(r=>r.id===id);if(destination&&destination!==row){row.layers.splice(i,1);destination.layers.push(layer);this.draw();}});});
         this.filters(details,layer);
+        new Setting(details).setName('Attach to anchor layer').setDesc('Follow explicit relationships to records in another layer of this row. No name-based guessing.').addDropdown(d=>{d.addOption('','Independent');for(const l of row.layers.filter(l=>l!==layer&&!l.attachment))d.addOption(l.id,l.name);if(layer.attachment&&!row.layers.some(l=>l.id===layer.attachment!.anchorLayer))d.addOption(layer.attachment.anchorLayer,'Unavailable anchor layer');d.setValue(layer.attachment?.anchorLayer||'').onChange(v=>{layer.attachment=v?{anchorLayer:v,relationship:'related_to',overrides:{}}:undefined;this.draw();});});
+        if(layer.attachment){
+          const a=layer.attachment,anchor=row.layers.find(l=>l.id===a.anchorLayer);
+          if(!anchor||!anchor.enabled)details.createEl('p',{text:'Warning: the anchor layer is unavailable. Records will appear in Unassigned.'});
+          new Setting(details).setName('Relationship field').addDropdown(d=>{Object.entries(this.plugin.settings.relationshipLabels).forEach(([k,v])=>d.addOption(k,v));d.setValue(a.relationship).onChange(v=>a.relationship=v as typeof a.relationship);});
+          const overrides=details.createEl('details');overrides.createEl('summary',{text:'Explicit anchor overrides'});
+          overrides.createEl('p',{cls:'vt-section-note',text:'Overrides affect this display only. Notes are never rewritten.'});
+          for(const record of this.records.filter(r=>matches(r,layer)))new Setting(overrides).setName(record.title).addDropdown(d=>{d.addOption('','Use note relationship');if(a.overrides[record.id])d.addOption(a.overrides[record.id],a.overrides[record.id]);for(const r of this.records.filter(r=>anchor&&matches(r,anchor)))d.addOption(r.id,r.title);d.setValue(a.overrides[record.id]||'').onChange(v=>{if(v)a.overrides[record.id]=v;else delete a.overrides[record.id];});});
+        }
         new Setting(details).setName('Display style').addDropdown(d=>{d.addOption('default','Category default');STYLES.forEach(s=>d.addOption(s,s==='box'?'Box / duration bar':s[0].toUpperCase()+s.slice(1)));d.setValue(layer.style).onChange(v=>layer.style=v as TimelineLayer['style']);});
         new Setting(details).setName('Placement').addDropdown(d=>d.addOption('background','Background').addOption('foreground','Foreground').setValue(layer.plane).onChange(v=>layer.plane=v as TimelineLayer['plane']));
         new Setting(details).setName('Opacity').addSlider(s=>s.setLimits(10,100,5).setValue(layer.opacity*100).setDynamicTooltip().onChange(v=>layer.opacity=v/100));
         new Setting(details).setName('Color').addColorPicker(p=>p.setValue(layer.color).onChange(v=>layer.color=v));
-        new Setting(details).setName('Labels').addDropdown(d=>d.addOption('always','Always visible').addOption('selection','On hover or keyboard focus').addOption('hidden','Hidden (tooltip remains)').setValue(layer.labels).onChange(v=>layer.labels=v as TimelineLayer['labels']));
+        new Setting(details).setName('Labels').setDesc('Labels never move records. Full names are always available in the detail panel.').addDropdown(d=>d.addOption('adaptive','Adaptive: show names that fit').addOption('always','Prefer visible: omit collisions').addOption('selection','On hover or keyboard focus').addOption('hidden','Hidden (details remain)').setValue(layer.labels).onChange(v=>layer.labels=v as TimelineLayer['labels']));
         this.button(details,'Remove layer',()=>{row.layers.splice(i,1);this.draw();});
       });
       this.button(section,'Add layer',()=>{row.layers.push(newLayer());this.draw();});
