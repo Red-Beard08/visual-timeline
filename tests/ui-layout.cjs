@@ -14,6 +14,27 @@ const count=await page.evaluate(()=>new Set([...document.querySelectorAll('[data
 const expectedNames=new Set(config.views[0].rows.flatMap(row=>row.layers.filter(l=>['adaptive','always'].includes(l.labels)).flatMap(l=>records.filter(r=>l.types.includes(r.type)&&(!l.categories.length||l.categories.some(c=>r.categories.includes(c)))).map(r=>r.id)))).size;
 assert.equal(await page.locator('.vt-adaptive-label').count(),expectedNames,'Every named record needs a visible label, including cluster members');
 const heights=await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height));
+const wheelState=()=>page.locator('.vt-chart-scroll').evaluate(e=>{
+  const width=Number(e.querySelector('.vt-composition-svg').getAttribute('width')),pointer=e.clientWidth*.6;
+  return {width,top:e.scrollTop,date:(e.scrollLeft+pointer-160-24)/(width-48)};
+});
+const wheel=async(options={})=>{
+  const prevented=await page.locator('.vt-chart-scroll').evaluate((e,o)=>{const ev=new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:e.getBoundingClientRect().left+e.clientLeft+e.clientWidth*.6,deltaY:-180,...o});e.dispatchEvent(ev);return ev.defaultPrevented;},options);
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));return prevented;
+};
+const beforeWheel=await wheelState();assert.ok(await wheel());const afterWheel=await wheelState();
+assert.ok(afterWheel.width>beforeWheel.width,'Wheel up zooms in');
+assert.ok(Math.abs(afterWheel.date-beforeWheel.date)<2/(afterWheel.width-48),'Zoom must preserve the date under the pointer');
+assert.equal(afterWheel.top,beforeWheel.top,'Wheel zoom must not scroll vertically');
+assert.ok(await wheel({deltaY:180}));assert.ok((await wheelState()).width<afterWheel.width,'Wheel down zooms out');
+const unchanged=(await wheelState()).width;
+assert.equal(await wheel({deltaY:-120,shiftKey:true}),false,'Shift+wheel remains available for panning');
+assert.equal(await wheel({deltaX:120,deltaY:0}),false,'Horizontal gestures remain available for panning');
+assert.equal((await wheelState()).width,unchanged);
+await wheel({deltaMode:1,deltaY:-3});assert.ok((await wheelState()).width>unchanged,'Line-mode wheel packets zoom');
+for(let i=0;i<4;i++)await wheel({deltaY:-100000});assert.ok((await wheelState()).width<=beforeWheel.width*32,'Maximum zoom is bounded');
+for(let i=0;i<4;i++)await wheel({deltaY:100000});assert.ok((await wheelState()).width>=beforeWheel.width,'Minimum zoom is Fit');
+await page.getByRole('button',{name:'Fit',exact:true}).click();
 assert.ok(await page.locator('.vt-chart-canvas').evaluate(e=>e.getBoundingClientRect().height)<=600);
 const overlaps=await page.evaluate(()=>[...document.querySelectorAll('.vt-composition-svg')].flatMap(svg=>{const boxes=[...svg.querySelectorAll('.vt-adaptive-label')].map(e=>e.getBoundingClientRect());return boxes.flatMap((b,i)=>boxes.slice(i+1).filter(c=>b.left<c.right&&b.right>c.left&&b.top<c.bottom&&b.bottom>c.top));}).length);assert.equal(overlaps,0);
 const pathsBefore=await page.locator('.vt-duration-shape').evaluateAll(es=>es.map(e=>e.getAttribute('d')));

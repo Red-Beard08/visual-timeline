@@ -13,7 +13,7 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
   const button=(host:HTMLElement,text:string,fn:()=>void)=>{const b=host.createEl('button',{text});b.onclick=fn;return b;};
   const scroll=root.createDiv({cls:'vt-chart-scroll',attr:{tabindex:'0','aria-label':'Timeline; scroll to explore. Select a shape for details.'}});
   const hint=root.createDiv({cls:'vt-chart-hint',attr:{'aria-live':'polite'}});
-  hint.textContent='Select a shape for details. Short or overlapping items may be grouped into count markers.';
+  hint.textContent='Wheel up/down over the timeline to zoom. Shift+wheel or horizontal scrolling pans. Select an item for details.';
   const inspector=root.createEl('aside',{cls:'vt-inspector',attr:{'aria-label':'Timeline details'}});inspector.hidden=true;
   const diagnostics=root.createEl('details',{cls:'vt-diagnostics'});
   let zoom=initialZoom,visible=new Set(records.map(r=>r.id)),selected:PlacedItem|undefined,returnFocus:Element|null=null,dead=false,lastWidth=0;
@@ -116,12 +116,31 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
     }
     scroll.scrollLeft=previousLeft;scroll.scrollTop=previousTop;
   };
-  const zoomBy=(factor:number)=>{
+  let wheelFrame=0,pendingWheel=0,wheelPointer=0;
+  const clearWheel=()=>{if(wheelFrame)cancelAnimationFrame(wheelFrame);wheelFrame=0;pendingWheel=0;};
+  const zoomBy=(factor:number,pointer?:number)=>{
     const old=zoom,viewport=Math.max(260,scroll.clientWidth),basePlot=Math.max(720,viewport-gutter),oldPlot=basePlot*zoom;
-    const relative=selected?(selected.start-bounds.min)/(bounds.max-bounds.min):Math.max(0,(scroll.scrollLeft+viewport/2-gutter)/Math.max(1,oldPlot));
-    zoom=Math.max(1,Math.min(32,zoom*factor));if(old===zoom)return;draw();scroll.scrollLeft=gutter+relative*basePlot*zoom-viewport/2;
+    const focus=pointer??viewport/2;
+    const relative=pointer===undefined&&selected?(selected.start-bounds.min)/(bounds.max-bounds.min):Math.max(0,Math.min(1,(scroll.scrollLeft+focus-gutter-24)/Math.max(1,oldPlot-48)));
+    zoom=Math.max(1,Math.min(32,zoom*factor));if(old===zoom)return;
+    draw();scroll.scrollLeft=gutter+24+relative*(basePlot*zoom-48)-focus;
   };
-  button(toolbar,'Fit',()=>{zoom=1;draw();scroll.scrollLeft=0;});button(toolbar,'Zoom in',()=>zoomBy(2));button(toolbar,'Zoom out',()=>zoomBy(.5));
+  const fit=()=>{clearWheel();zoom=1;draw();scroll.scrollLeft=0;};
+  const onWheel=(event:WheelEvent)=>{
+    if(event.shiftKey||Math.abs(event.deltaX)>Math.abs(event.deltaY)||!Number.isFinite(event.deltaY)||!event.deltaY)return;
+    const pointer=event.clientX-scroll.getBoundingClientRect().left-scroll.clientLeft;
+    // Keep normal scrolling over the pinned lane names and outside the chart.
+    if(pointer<gutter||pointer>scroll.clientWidth)return;
+    event.preventDefault();event.stopPropagation();
+    const delta=event.deltaY*(event.deltaMode===1?16:event.deltaMode===2?scroll.clientHeight:1);
+    pendingWheel+=Math.max(-240,Math.min(240,delta));wheelPointer=pointer;
+    if(!wheelFrame)wheelFrame=requestAnimationFrame(()=>{
+      wheelFrame=0;const amount=pendingWheel;pendingWheel=0;
+      if(!dead)zoomBy(Math.exp(Math.max(-1.4,Math.min(1.4,-amount*.002))),wheelPointer);
+    });
+  };
+  scroll.addEventListener('wheel',onWheel,{passive:false});
+  button(toolbar,'Fit',fit);button(toolbar,'Zoom in',()=>{clearWheel();zoomBy(2);});button(toolbar,'Zoom out',()=>{clearWheel();zoomBy(.5);});
   const gridLabel=toolbar.createEl('label',{cls:'vt-grid-toggle'}),gridInput=gridLabel.createEl('input',{type:'checkbox'});
   gridLabel.createSpan({text:'Year lines'});gridInput.checked=view.yearGrid===true;
   gridInput.onchange=async()=>{const old=view.yearGrid;view.yearGrid=gridInput.checked;draw();gridInput.disabled=true;
@@ -129,5 +148,5 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
   };
   const observer=new ResizeObserver(()=>{if(Math.abs(scroll.clientWidth-lastWidth)>1)draw();});observer.observe(scroll);
   draw();
-  return {destroy(){dead=true;observer.disconnect();root.removeEventListener('keydown',onKey);root.remove();},setVisible(ids){visible=ids;draw();},zoomBy,fit(){zoom=1;draw();scroll.scrollLeft=0;}};
+  return {destroy(){dead=true;clearWheel();scroll.removeEventListener('wheel',onWheel);observer.disconnect();root.removeEventListener('keydown',onKey);root.remove();},setVisible(ids){visible=ids;draw();},zoomBy,fit};
 }

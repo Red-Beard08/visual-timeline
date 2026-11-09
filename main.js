@@ -569,7 +569,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   };
   const scroll = root.createDiv({ cls: "vt-chart-scroll", attr: { tabindex: "0", "aria-label": "Timeline; scroll to explore. Select a shape for details." } });
   const hint = root.createDiv({ cls: "vt-chart-hint", attr: { "aria-live": "polite" } });
-  hint.textContent = "Select a shape for details. Short or overlapping items may be grouped into count markers.";
+  hint.textContent = "Wheel up/down over the timeline to zoom. Shift+wheel or horizontal scrolling pans. Select an item for details.";
   const inspector = root.createEl("aside", { cls: "vt-inspector", attr: { "aria-label": "Timeline details" } });
   inspector.hidden = true;
   const diagnostics = root.createEl("details", { cls: "vt-diagnostics" });
@@ -754,21 +754,53 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     scroll.scrollLeft = previousLeft;
     scroll.scrollTop = previousTop;
   };
-  const zoomBy = (factor) => {
+  let wheelFrame = 0, pendingWheel = 0, wheelPointer = 0;
+  const clearWheel = () => {
+    if (wheelFrame) cancelAnimationFrame(wheelFrame);
+    wheelFrame = 0;
+    pendingWheel = 0;
+  };
+  const zoomBy = (factor, pointer) => {
     const old = zoom, viewport = Math.max(260, scroll.clientWidth), basePlot = Math.max(720, viewport - gutter), oldPlot = basePlot * zoom;
-    const relative = selected ? (selected.start - bounds.min) / (bounds.max - bounds.min) : Math.max(0, (scroll.scrollLeft + viewport / 2 - gutter) / Math.max(1, oldPlot));
+    const focus = pointer != null ? pointer : viewport / 2;
+    const relative = pointer === void 0 && selected ? (selected.start - bounds.min) / (bounds.max - bounds.min) : Math.max(0, Math.min(1, (scroll.scrollLeft + focus - gutter - 24) / Math.max(1, oldPlot - 48)));
     zoom = Math.max(1, Math.min(32, zoom * factor));
     if (old === zoom) return;
     draw();
-    scroll.scrollLeft = gutter + relative * basePlot * zoom - viewport / 2;
+    scroll.scrollLeft = gutter + 24 + relative * (basePlot * zoom - 48) - focus;
   };
-  button(toolbar, "Fit", () => {
+  const fit = () => {
+    clearWheel();
     zoom = 1;
     draw();
     scroll.scrollLeft = 0;
+  };
+  const onWheel = (event) => {
+    if (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY) || !Number.isFinite(event.deltaY) || !event.deltaY) return;
+    const pointer = event.clientX - scroll.getBoundingClientRect().left - scroll.clientLeft;
+    if (pointer < gutter || pointer > scroll.clientWidth) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroll.clientHeight : 1);
+    pendingWheel += Math.max(-240, Math.min(240, delta));
+    wheelPointer = pointer;
+    if (!wheelFrame) wheelFrame = requestAnimationFrame(() => {
+      wheelFrame = 0;
+      const amount = pendingWheel;
+      pendingWheel = 0;
+      if (!dead) zoomBy(Math.exp(Math.max(-1.4, Math.min(1.4, -amount * 2e-3))), wheelPointer);
+    });
+  };
+  scroll.addEventListener("wheel", onWheel, { passive: false });
+  button(toolbar, "Fit", fit);
+  button(toolbar, "Zoom in", () => {
+    clearWheel();
+    zoomBy(2);
   });
-  button(toolbar, "Zoom in", () => zoomBy(2));
-  button(toolbar, "Zoom out", () => zoomBy(0.5));
+  button(toolbar, "Zoom out", () => {
+    clearWheel();
+    zoomBy(0.5);
+  });
   const gridLabel = toolbar.createEl("label", { cls: "vt-grid-toggle" }), gridInput = gridLabel.createEl("input", { type: "checkbox" });
   gridLabel.createSpan({ text: "Year lines" });
   gridInput.checked = view.yearGrid === true;
@@ -795,17 +827,15 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   draw();
   return { destroy() {
     dead = true;
+    clearWheel();
+    scroll.removeEventListener("wheel", onWheel);
     observer.disconnect();
     root.removeEventListener("keydown", onKey);
     root.remove();
   }, setVisible(ids) {
     visible = ids;
     draw();
-  }, zoomBy, fit() {
-    zoom = 1;
-    draw();
-    scroll.scrollLeft = 0;
-  } };
+  }, zoomBy, fit };
 }
 
 // src/dashboard.ts
