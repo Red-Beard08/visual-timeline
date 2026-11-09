@@ -5,7 +5,7 @@ import {historicalDate} from './dates';
 
 export interface Diagnostic {record:TimelineRecord; message:string;}
 export interface Lane {id:string; title:string; y:number;}
-export interface Curve {start:number; settle:number; origin:number; target:number;}
+export interface Curve {start:number; settle:number; origin:number; target:number; offset?:number; initialScale?:number;}
 export interface PlacedItem {
   key:string; record:TimelineRecord; layer:TimelineLayer; style:DisplayStyle;
   start:number; end:number; x:number; xEnd:number; laneId:string; subtrack:number;
@@ -14,7 +14,7 @@ export interface PlacedItem {
 }
 export interface Cluster {key:string; x:number; y:number; items:PlacedItem[];}
 export interface RowLayout {items:PlacedItem[];lanes:Lane[];clusters:Cluster[];height:number;diagnostics:Diagnostic[];}
-export interface LabelBox {key:string;x:number;y:number;width:number;height:number;}
+export interface LabelBox {key:string;x:number;y:number;width:number;height:number;text:string;sourceX:number;sourceY:number;leader:boolean;}
 const refName=(s:string)=>s.replace(/^\[\[|\]\]$/g,'').split('|')[0].replace(/\.md$/,'');
 /** Resolve by identity first. A non-unique match is never silently selected. */
 export function resolveReference(ref:string,records:TimelineRecord[]):TimelineRecord|undefined {
@@ -25,7 +25,7 @@ export function resolveReference(ref:string,records:TimelineRecord[]):TimelineRe
 }
 export function centerAt(curve:Curve,x:number):number {
   const t=Math.max(0,Math.min(1,(x-curve.start)/Math.max(.00001,curve.settle-curve.start)));
-  return curve.origin+(curve.target-curve.origin)*t*t*(3-2*t);
+  return curve.origin+(curve.target-curve.origin)*t*t*(3-2*t)+(curve.offset||0)*((curve.initialScale??1)+(1-(curve.initialScale??1))*t);
 }
 const chronological=(a:PlacedItem,b:PlacedItem)=>a.start-b.start||a.end-b.end||a.key.localeCompare(b.key);
 export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:number;max:number},width:number,styles:Record<string,DisplayStyle>):RowLayout {
@@ -60,7 +60,7 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
     const parent=parents.get(a),siblings=parent?children(parent):[],index=siblings.indexOf(a);
     a.laneId=a.key;a.initialHalf=parent?28/siblings.length:28;a.terminal=children(a).length===0;
     const origin=parent?parent.y-28+a.initialHalf+index*2*a.initialHalf:a.y;
-    a.curve={start:a.x,settle:a.x+Math.min(110,(a.xEnd-a.x)*.45),origin,target:a.y};
+    a.curve={start:a.x,settle:a.x+Math.min(110,(a.xEnd-a.x)*.45),origin,target:a.y,initialScale:a.initialHalf/a.half};
     lanes.push({id:a.key,title:a.record.title,y:a.y});
   }
   const independent=new Map<string,Lane>();
@@ -89,8 +89,9 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
     if(track<0)track=tracks.length;
     tracks[track]=Math.max(p.end,p.start+1e-8);ends.set(key,tracks);
     p.subtrack=track;p.clustered=track>=maxTracks;
-    const offset=p.style==='dot'?42:(Math.min(track,maxTracks-1)-(maxTracks-1)/2)*14;
-    p.curve={...p.curve,origin:p.curve.origin+offset,target:p.curve.target+offset};p.y+=offset;
+    const visibleTrack=Math.min(track,maxTracks-1);
+    const offset=p.style==='dot'?42:visibleTrack===0?0:(visibleTrack%2?-1:1)*Math.ceil(visibleTrack/2)*14;
+    p.curve={...p.curve,offset,initialScale:p.style==='dot'?1:p.curve.initialScale};p.y+=offset;
   }
   // Clusters are hit-target groups, never discarded records. Geometry above remains stable.
   const clusters:Cluster[]=[];
@@ -108,25 +109,76 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
   const height=Math.max(row.height,nextY===76?120:nextY-112+76);
   return {items,lanes,clusters,height,diagnostics};
 }
-/** Label decisions cannot alter the historical geometry. All inputs are CSS pixels. */
-export function placeLabels(items:PlacedItem[],width:number,measure:(text:string)=>number):LabelBox[]{
+/** Labels use separate callout slots. They never change historical geometry. */
+export function placeLabels(items:PlacedItem[],width:number,measure:(text:string)=>number,height=300):LabelBox[]{
   const boxes:LabelBox[]=[];
+  const anchors=items.filter(p=>p.isAnchor);
+  const minAnchor=Math.min(...anchors.map(p=>p.y)),maxAnchor=Math.max(...anchors.map(p=>p.y));
+  const truncate=(s:string,w:number):string=>{
+    if(measure(s)<=w)return s;
+    let n=s.length;while(n>1&&measure(s.slice(0,n)+'…')>w)n--;
+    return s.slice(0,n)+'…';
+  };
+  const collision=(b:LabelBox)=>boxes.some(a=>b.x<a.x+a.width+6&&b.x+b.width+6>a.x&&b.y<a.y+a.height+3&&b.y+b.height+3>a.y);
   for(const p of [...items].sort((a,b)=>Number(b.isAnchor)-Number(a.isAnchor)||chronological(a,b))){
-    if(p.clustered||!['adaptive','always'].includes(p.layer.labels))continue;
-    const w=measure(p.record.title),available=p.xEnd-p.x;
-    if(p.layer.labels==='adaptive'&&!p.isAnchor&&p.style!=='dot'&&available<w+10)continue;
-    const x=p.x+3,y=p.style==='band'?12:centerAt(p.curve,p.x)- (p.isAnchor?40:12);
-    const box={key:p.key,x,y:y-12,width:w,height:15};
-    if(x+w>width-8||x<0)continue;
-    if(boxes.some(b=>x<b.x+b.width+8&&x+w+8>b.x&&box.y<b.y+b.height+4&&box.y+box.height+4>b.y))continue;
-    boxes.push(box);
+    if(!['adaptive','always'].includes(p.layer.labels))continue;
+    const sx=p.isAnchor?Math.min(p.xEnd-4,p.curve.settle+8):p.x+2;
+    const sy=p.style==='band'?32:centerAt(p.curve,sx);
+    const available=Math.max(34,p.xEnd-sx-8);
+    const preferred=p.isAnchor?Math.min(260,available):Math.min(180,Math.max(50,available));
+    const anchor=anchors.find(a=>a.key===p.anchorKey);
+    // Keep callouts in their own kingdom's text rail, never in the other branch.
+    const rail=anchor&&minAnchor!==maxAnchor&&anchor.y===minAnchor
+      ? [anchor.y-72,anchor.y-54,anchor.y-36]
+      : anchor&&minAnchor!==maxAnchor&&anchor.y===maxAnchor
+        ? [anchor.y+34,anchor.y+52,anchor.y+70,anchor.y+88]
+        : p.isAnchor?[sy,sy+18,sy-54,sy-70]
+          : [sy-36,sy-54,sy-72,sy+10,sy+28,sy+46];
+    let placed=false;
+    for(const budget of [preferred,Math.min(preferred,70),34]){
+      const name=truncate(p.record.title,Math.min(budget,width-12)),w=measure(name);
+      const x=Math.max(4,Math.min(sx,width-w-4));
+      for(const y of rail){
+        if(y<4||y+15>height-4)continue;
+        const box:LabelBox={key:p.key,x,y,width:w,height:15,text:name,sourceX:sx,sourceY:sy,leader:!p.isAnchor&&(Math.abs(y+12-sy)>22||Math.abs(x-sx)>5)};
+        if(collision(box))continue;
+        boxes.push(box);placed=true;break;
+      }
+      if(placed)break;
+    }
+    // Dense configurations still get an identifier in the remaining free text slots.
+    if(!placed){
+      const text=truncate(p.record.title,34),w=measure(text);
+      outer:for(const y of rail.filter(y=>y>=4&&y+15<=height-4))for(const shift of [0,-16,16,-32,32,-48,48,-64,64]){const x=Math.max(4,Math.min(sx+shift,width-w-4));
+        const b:LabelBox={key:p.key,x,y,width:w,height:15,text,sourceX:sx,sourceY:sy,leader:true};
+        if(!collision(b)){boxes.push(b);break outer;}
+      }
+    }
   }
   return boxes;
 }
+/** Piecewise exact cubic interpolation. Shared curves have identical geometry at every zoom. */
+function cubicSection(from:number,to:number,f:(x:number)=>number):string {
+  const d=to-from,a=f(from),b=f(from+d/3),c=f(from+2*d/3),e=f(to);
+  const c1=3*b-1.5*c-5*a/6+e/3,c2=3*c-1.5*b+a/3-5*e/6;
+  return `C ${from+d/3},${c1} ${from+2*d/3},${c2} ${to},${e}`;
+}
+function halfAt(p:PlacedItem,x:number):number {
+  if(!p.isAnchor){const t=Math.max(0,Math.min(1,(x-p.curve.start)/Math.max(.001,p.curve.settle-p.curve.start)));return p.half*(p.anchor?(p.curve.initialScale??1)+(1-(p.curve.initialScale??1))*t:1);}
+  const t=Math.max(0,Math.min(1,(x-p.x)/Math.max(.001,p.curve.settle-p.x)));
+  let half=p.initialHalf+(p.half-p.initialHalf)*t;
+  if(p.terminal)half*=Math.max(0,Math.min(1,(p.xEnd-x)/Math.max(.001,Math.min(30,(p.xEnd-p.x)*.2))));
+  return half;
+}
+export function curvePath(p:PlacedItem,edge=0):string {
+  const breaks=[p.x,p.xEnd,p.curve.start,p.curve.settle,p.xEnd-Math.min(30,(p.xEnd-p.x)*.2)]
+    .filter(x=>x>=p.x&&x<=p.xEnd).sort((a,b)=>a-b).filter((x,i,a)=>i===0||x!==a[i-1]);
+  const fn=(x:number)=>centerAt(p.curve,x)+edge*halfAt(p,x);
+  return `M ${breaks[0]},${fn(breaks[0])} `+breaks.slice(1).map((x,i)=>cubicSection(breaks[i],x,fn)).join(' ');
+}
 export function ribbonPath(p:PlacedItem):string {
-  const start=p.x,end=p.xEnd;
-  const points=Array.from({length:33},(_,i)=>{const x=start+(end-start)*i/32;let half=p.half;
-    if(p.isAnchor){const t=Math.min(1,(x-start)/Math.max(.001,p.curve.settle-start));half=p.initialHalf+(p.half-p.initialHalf)*t;if(p.terminal)half*=Math.min(1,(end-x)/Math.max(1,Math.min(30,(end-start)*.2)));}
-    return {x,y:centerAt(p.curve,x),half};});
-  return `M ${points.map(v=>`${v.x},${v.y-v.half}`).join(' L ')} L ${points.reverse().map(v=>`${v.x},${v.y+v.half}`).join(' L ')} Z`;
+  const breaks=[p.x,p.xEnd,p.curve.start,p.curve.settle,p.xEnd-Math.min(30,(p.xEnd-p.x)*.2)]
+    .filter(x=>x>=p.x&&x<=p.xEnd).sort((a,b)=>a-b).filter((x,i,a)=>i===0||x!==a[i-1]).reverse();
+  const lower=(x:number)=>centerAt(p.curve,x)+halfAt(p,x);
+  return curvePath(p,-1)+` L ${p.xEnd},${lower(p.xEnd)} `+breaks.slice(1).map((x,i)=>cubicSection(breaks[i],x,lower)).join(' ')+' Z';
 }

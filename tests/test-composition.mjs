@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 async function module(path){const out=await build({entryPoints:[path],bundle:true,write:false,format:'esm'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));}
 const {defaults,normalizeComposition,newLayer,newRow,reorder,matches,styleFor}=await module('src/composition.ts');
-const {layoutRow,resolveReference,placeLabels,centerAt}=await module('src/layout.ts');
+const {layoutRow,resolveReference,placeLabels,centerAt,curvePath}=await module('src/layout.ts');
 const {historicalDate,formatTime}=await module('src/dates.ts');
 const {relations}=await module('src/utils.ts');
 assert.equal(historicalDate('930 BC'),-929);assert.equal(historicalDate('1 BC'),0);assert.equal(historicalDate('AD 1'),1);
@@ -27,7 +27,7 @@ const changed=records.map(r=>({...r,title:r.title.repeat(80)}));const long=layou
 assert.deepEqual(layout.items.map(p=>[p.laneId,p.subtrack,p.y]),long.items.map(p=>[p.laneId,p.subtrack,p.y]));
 const wide=layoutRow(row,records,bounds,3000,{});assert.equal(wide.height,layout.height);assert.deepEqual(wide.items.map(p=>p.y),layout.items.map(p=>p.y));
 const reversed=layoutRow({...row,layers:[rulers,anchors]},records,bounds,1000,{});assert.deepEqual(layout.items.map(p=>[p.key,p.y]),reversed.items.map(p=>[p.key,p.y]));
-const curveKing=record('CurveKing','person','900 BC','850 BC',{related_to:['B']});const curved=layoutRow(row,[...records,curveKing],bounds,1000,{});const cp=get(curved,'CurveKing'),ap=get(curved,'B');assert.equal(centerAt(cp.curve,cp.x)-centerAt(ap.curve,cp.x),-14);
+const curveKing=record('CurveKing','person','900 BC','850 BC',{related_to:['B']});const curved=layoutRow(row,[...records,curveKing],bounds,1000,{});const cp=get(curved,'CurveKing'),ap=get(curved,'B');assert.equal(centerAt(cp.curve,cp.x)-centerAt(ap.curve,cp.x),0);
 const labelBoxes=placeLabels(layout.items,1000,s=>s.length*7);for(const l of labelBoxes){assert.ok(l.x>=0&&l.x+l.width<=1000);}
 const alias={...a,aliases:['Alias']};assert.equal(resolveReference('Alias',[alias]),alias);assert.equal(resolveReference('A.md',[alias]),alias);assert.equal(resolveReference('A',[alias,{...a,path:'other/A.md'}]),undefined);
 assert.equal(resolveReference('missing',records),undefined);
@@ -41,3 +41,16 @@ const invalid=layoutRow(row,[{...king,date:{start:'bad'}},{...a,date:{start:'800
 const l=newLayer();l.tags=['history'];assert.ok(matches(a,l));l.categories=['person'];assert.ok(!matches(a,l));l.style='line';assert.equal(styleFor(a,l,{kingdom:'box'}),'line');
 const order=['a','b','c'];reorder(order,2,0);assert.deepEqual(order,['c','a','b']);
 console.log('Validated v2 compatibility, date precision, explicit anchors, stable geometry, label isolation, overlap/cluster coverage, and diagnostics.');
+// Long anchors and short attached spans must render the same exact curve, not different sampling densities.
+for(const span of [200,10000]){
+  const p={...get(layout,'King'),x:0,xEnd:span,curve:{start:0,settle:110,origin:132,target:76,offset:-14,initialScale:.5}};
+  const d=curvePath(p);let x0=0,y0=centerAt(p.curve,0);
+  for(const m of d.matchAll(/C ([^ ]+) ([^ ]+) ([^ ]+)/g)){
+    const [x1,y1]=m[1].split(',').map(Number),[x2,y2]=m[2].split(',').map(Number),[x3,y3]=m[3].split(',').map(Number),t=.37,u=1-t;
+    const xx=u*u*u*x0+3*u*u*t*x1+3*u*t*t*x2+t*t*t*x3,yy=u*u*u*y0+3*u*u*t*y1+3*u*t*t*y2+t*t*t*y3;
+    assert.ok(Math.abs(yy-centerAt(p.curve,xx))<1e-8,'Exact curve must not drift with item length');x0=x3;y0=y3;
+  }
+}
+const names=placeLabels(crowded.items,1000,s=>s.length*7,crowded.height);
+assert.equal(names.length,crowded.items.length,'Clustered short items must still have name labels');
+assert.ok(names.every(n=>n.text.length&&n.x>=0&&n.x+n.width<=1000));

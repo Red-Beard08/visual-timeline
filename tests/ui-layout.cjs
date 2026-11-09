@@ -11,6 +11,8 @@ await page.evaluate(()=>{HTMLElement.prototype.createEl=function(tag,o={}){const
 await page.addScriptTag({content:bundle.outputFiles[0].text});await page.evaluate(({records,config})=>start(records,config),{records,config});
 await page.waitForFunction(()=>document.querySelector('.vt-composed-record'));
 const count=await page.evaluate(()=>new Set([...document.querySelectorAll('[data-records]')].flatMap(e=>e.getAttribute('data-records').split('|'))).size);assert.equal(count,records.length);
+const expectedNames=new Set(config.views[0].rows.flatMap(row=>row.layers.filter(l=>['adaptive','always'].includes(l.labels)).flatMap(l=>records.filter(r=>l.types.includes(r.type)&&(!l.categories.length||l.categories.some(c=>r.categories.includes(c)))).map(r=>r.id)))).size;
+assert.equal(await page.locator('.vt-adaptive-label').count(),expectedNames,'Every named record needs a visible label, including cluster members');
 const heights=await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height));
 assert.ok(await page.locator('.vt-chart-canvas').evaluate(e=>e.getBoundingClientRect().height)<=600);
 const overlaps=await page.evaluate(()=>[...document.querySelectorAll('.vt-composition-svg')].flatMap(svg=>{const boxes=[...svg.querySelectorAll('.vt-adaptive-label')].map(e=>e.getBoundingClientRect());return boxes.flatMap((b,i)=>boxes.slice(i+1).filter(c=>b.left<c.right&&b.right>c.left&&b.top<c.bottom&&b.bottom>c.top));}).length);assert.equal(overlaps,0);
@@ -27,6 +29,7 @@ await page.getByRole('button',{name:'Fit',exact:true}).click();
 await page.evaluate(()=>{const s=document.documentElement.style;s.setProperty('--background-primary','#fafafa');s.setProperty('--background-secondary','#f2f2f2');s.setProperty('--background-modifier-border','#ccc');s.setProperty('--text-normal','#222');s.setProperty('--text-muted','#555');});
 await page.screenshot({path:path.join(process.env.TEMP,'timeline-v140-light.png'),fullPage:true});
 await page.setViewportSize({width:390,height:844});await page.waitForTimeout(100);assert.deepEqual(await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height)),heights);
+assert.equal(await page.locator('.vt-adaptive-label').count(),expectedNames,'Narrow charts retain name labels on the horizontally scrollable canvas');
 await page.locator('.vt-composed-record').first().focus();await page.keyboard.press('Enter');await page.screenshot({path:path.join(process.env.TEMP,'timeline-v140-mobile.png'),fullPage:true});
 assert.ok(await page.getByRole('button',{name:'Close',exact:true}).isVisible());await page.getByRole('button',{name:'Close',exact:true}).click();
 await page.locator('.vt-chart-scroll').evaluate(e=>{e.scrollTop=100;e.scrollLeft=100;});const sticky=await page.evaluate(()=>{const frame=document.querySelector('.vt-chart-scroll').getBoundingClientRect(),axis=document.querySelector('.vt-sticky-axis').getBoundingClientRect();return Math.abs(axis.top-frame.top);});assert.ok(sticky<=2);

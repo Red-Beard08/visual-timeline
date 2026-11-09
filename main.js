@@ -301,8 +301,9 @@ function resolveReference(ref, records) {
   return void 0;
 }
 function centerAt(curve, x) {
+  var _a, _b;
   const t = Math.max(0, Math.min(1, (x - curve.start) / Math.max(1e-5, curve.settle - curve.start)));
-  return curve.origin + (curve.target - curve.origin) * t * t * (3 - 2 * t);
+  return curve.origin + (curve.target - curve.origin) * t * t * (3 - 2 * t) + (curve.offset || 0) * (((_a = curve.initialScale) != null ? _a : 1) + (1 - ((_b = curve.initialScale) != null ? _b : 1)) * t);
 }
 var chronological = (a, b) => a.start - b.start || a.end - b.end || a.key.localeCompare(b.key);
 function layoutRow(row, records, bounds, width, styles) {
@@ -385,7 +386,7 @@ function layoutRow(row, records, bounds, width, styles) {
     a.initialHalf = parent ? 28 / siblings.length : 28;
     a.terminal = children(a).length === 0;
     const origin = parent ? parent.y - 28 + a.initialHalf + index * 2 * a.initialHalf : a.y;
-    a.curve = { start: a.x, settle: a.x + Math.min(110, (a.xEnd - a.x) * 0.45), origin, target: a.y };
+    a.curve = { start: a.x, settle: a.x + Math.min(110, (a.xEnd - a.x) * 0.45), origin, target: a.y, initialScale: a.initialHalf / a.half };
     lanes.push({ id: a.key, title: a.record.title, y: a.y });
   }
   const independent = /* @__PURE__ */ new Map();
@@ -442,8 +443,9 @@ function layoutRow(row, records, bounds, width, styles) {
     ends.set(key, tracks);
     p.subtrack = track;
     p.clustered = track >= maxTracks;
-    const offset = p.style === "dot" ? 42 : (Math.min(track, maxTracks - 1) - (maxTracks - 1) / 2) * 14;
-    p.curve = { ...p.curve, origin: p.curve.origin + offset, target: p.curve.target + offset };
+    const visibleTrack = Math.min(track, maxTracks - 1);
+    const offset = p.style === "dot" ? 42 : visibleTrack === 0 ? 0 : (visibleTrack % 2 ? -1 : 1) * Math.ceil(visibleTrack / 2) * 14;
+    p.curve = { ...p.curve, offset, initialScale: p.style === "dot" ? 1 : p.curve.initialScale };
     p.y += offset;
   }
   const clusters = [];
@@ -476,33 +478,78 @@ function layoutRow(row, records, bounds, width, styles) {
   const height = Math.max(row.height, nextY === 76 ? 120 : nextY - 112 + 76);
   return { items, lanes, clusters, height, diagnostics };
 }
-function placeLabels(items, width, measure) {
+function placeLabels(items, width, measure, height = 300) {
   const boxes = [];
+  const anchors = items.filter((p) => p.isAnchor);
+  const minAnchor = Math.min(...anchors.map((p) => p.y)), maxAnchor = Math.max(...anchors.map((p) => p.y));
+  const truncate = (s, w) => {
+    if (measure(s) <= w) return s;
+    let n = s.length;
+    while (n > 1 && measure(s.slice(0, n) + "\u2026") > w) n--;
+    return s.slice(0, n) + "\u2026";
+  };
+  const collision = (b) => boxes.some((a) => b.x < a.x + a.width + 6 && b.x + b.width + 6 > a.x && b.y < a.y + a.height + 3 && b.y + b.height + 3 > a.y);
   for (const p of [...items].sort((a, b) => Number(b.isAnchor) - Number(a.isAnchor) || chronological(a, b))) {
-    if (p.clustered || !["adaptive", "always"].includes(p.layer.labels)) continue;
-    const w = measure(p.record.title), available = p.xEnd - p.x;
-    if (p.layer.labels === "adaptive" && !p.isAnchor && p.style !== "dot" && available < w + 10) continue;
-    const x = p.x + 3, y = p.style === "band" ? 12 : centerAt(p.curve, p.x) - (p.isAnchor ? 40 : 12);
-    const box = { key: p.key, x, y: y - 12, width: w, height: 15 };
-    if (x + w > width - 8 || x < 0) continue;
-    if (boxes.some((b) => x < b.x + b.width + 8 && x + w + 8 > b.x && box.y < b.y + b.height + 4 && box.y + box.height + 4 > b.y)) continue;
-    boxes.push(box);
+    if (!["adaptive", "always"].includes(p.layer.labels)) continue;
+    const sx = p.isAnchor ? Math.min(p.xEnd - 4, p.curve.settle + 8) : p.x + 2;
+    const sy = p.style === "band" ? 32 : centerAt(p.curve, sx);
+    const available = Math.max(34, p.xEnd - sx - 8);
+    const preferred = p.isAnchor ? Math.min(260, available) : Math.min(180, Math.max(50, available));
+    const anchor = anchors.find((a) => a.key === p.anchorKey);
+    const rail = anchor && minAnchor !== maxAnchor && anchor.y === minAnchor ? [anchor.y - 72, anchor.y - 54, anchor.y - 36] : anchor && minAnchor !== maxAnchor && anchor.y === maxAnchor ? [anchor.y + 34, anchor.y + 52, anchor.y + 70, anchor.y + 88] : p.isAnchor ? [sy, sy + 18, sy - 54, sy - 70] : [sy - 36, sy - 54, sy - 72, sy + 10, sy + 28, sy + 46];
+    let placed = false;
+    for (const budget of [preferred, Math.min(preferred, 70), 34]) {
+      const name = truncate(p.record.title, Math.min(budget, width - 12)), w = measure(name);
+      const x = Math.max(4, Math.min(sx, width - w - 4));
+      for (const y of rail) {
+        if (y < 4 || y + 15 > height - 4) continue;
+        const box = { key: p.key, x, y, width: w, height: 15, text: name, sourceX: sx, sourceY: sy, leader: !p.isAnchor && (Math.abs(y + 12 - sy) > 22 || Math.abs(x - sx) > 5) };
+        if (collision(box)) continue;
+        boxes.push(box);
+        placed = true;
+        break;
+      }
+      if (placed) break;
+    }
+    if (!placed) {
+      const text2 = truncate(p.record.title, 34), w = measure(text2);
+      outer: for (const y of rail.filter((y2) => y2 >= 4 && y2 + 15 <= height - 4)) for (const shift of [0, -16, 16, -32, 32, -48, 48, -64, 64]) {
+        const x = Math.max(4, Math.min(sx + shift, width - w - 4));
+        const b = { key: p.key, x, y, width: w, height: 15, text: text2, sourceX: sx, sourceY: sy, leader: true };
+        if (!collision(b)) {
+          boxes.push(b);
+          break outer;
+        }
+      }
+    }
   }
   return boxes;
 }
+function cubicSection(from, to, f) {
+  const d = to - from, a = f(from), b = f(from + d / 3), c = f(from + 2 * d / 3), e = f(to);
+  const c1 = 3 * b - 1.5 * c - 5 * a / 6 + e / 3, c2 = 3 * c - 1.5 * b + a / 3 - 5 * e / 6;
+  return `C ${from + d / 3},${c1} ${from + 2 * d / 3},${c2} ${to},${e}`;
+}
+function halfAt(p, x) {
+  var _a, _b;
+  if (!p.isAnchor) {
+    const t2 = Math.max(0, Math.min(1, (x - p.curve.start) / Math.max(1e-3, p.curve.settle - p.curve.start)));
+    return p.half * (p.anchor ? ((_a = p.curve.initialScale) != null ? _a : 1) + (1 - ((_b = p.curve.initialScale) != null ? _b : 1)) * t2 : 1);
+  }
+  const t = Math.max(0, Math.min(1, (x - p.x) / Math.max(1e-3, p.curve.settle - p.x)));
+  let half = p.initialHalf + (p.half - p.initialHalf) * t;
+  if (p.terminal) half *= Math.max(0, Math.min(1, (p.xEnd - x) / Math.max(1e-3, Math.min(30, (p.xEnd - p.x) * 0.2))));
+  return half;
+}
+function curvePath(p, edge = 0) {
+  const breaks = [p.x, p.xEnd, p.curve.start, p.curve.settle, p.xEnd - Math.min(30, (p.xEnd - p.x) * 0.2)].filter((x) => x >= p.x && x <= p.xEnd).sort((a, b) => a - b).filter((x, i, a) => i === 0 || x !== a[i - 1]);
+  const fn = (x) => centerAt(p.curve, x) + edge * halfAt(p, x);
+  return `M ${breaks[0]},${fn(breaks[0])} ` + breaks.slice(1).map((x, i) => cubicSection(breaks[i], x, fn)).join(" ");
+}
 function ribbonPath(p) {
-  const start = p.x, end = p.xEnd;
-  const points = Array.from({ length: 33 }, (_, i) => {
-    const x = start + (end - start) * i / 32;
-    let half = p.half;
-    if (p.isAnchor) {
-      const t = Math.min(1, (x - start) / Math.max(1e-3, p.curve.settle - start));
-      half = p.initialHalf + (p.half - p.initialHalf) * t;
-      if (p.terminal) half *= Math.min(1, (end - x) / Math.max(1, Math.min(30, (end - start) * 0.2)));
-    }
-    return { x, y: centerAt(p.curve, x), half };
-  });
-  return `M ${points.map((v) => `${v.x},${v.y - v.half}`).join(" L ")} L ${points.reverse().map((v) => `${v.x},${v.y + v.half}`).join(" L ")} Z`;
+  const breaks = [p.x, p.xEnd, p.curve.start, p.curve.settle, p.xEnd - Math.min(30, (p.xEnd - p.x) * 0.2)].filter((x) => x >= p.x && x <= p.xEnd).sort((a, b) => a - b).filter((x, i, a) => i === 0 || x !== a[i - 1]).reverse();
+  const lower = (x) => centerAt(p.curve, x) + halfAt(p, x);
+  return curvePath(p, -1) + ` L ${p.xEnd},${lower(p.xEnd)} ` + breaks.slice(1).map((x, i) => cubicSection(breaks[i], x, lower)).join(" ") + " Z";
 }
 
 // src/composition-renderer.ts
@@ -581,7 +628,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     const previousLeft = scroll.scrollLeft, previousTop = scroll.scrollTop;
     scroll.empty();
     diagnostics.empty();
-    const viewport = Math.max(260, scroll.clientWidth), plotWidth = Math.max(200, viewport - gutter) * zoom, total = plotWidth + gutter;
+    const viewport = Math.max(260, scroll.clientWidth), plotWidth = Math.max(720, viewport - gutter) * zoom, total = plotWidth + gutter;
     lastWidth = viewport;
     const canvas = scroll.createDiv({ cls: "vt-chart-canvas" });
     canvas.style.width = `${total}px`;
@@ -614,7 +661,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       const svg = element("svg", { width: plotWidth, height: layout.height, class: "vt-composition-svg", "aria-label": row.name });
       strip.appendChild(svg);
       const shown = layout.items.filter((p) => visible.has(p.record.id));
-      const labelBoxes = placeLabels(shown, plotWidth, measure);
+      const labelBoxes = placeLabels(shown, plotWidth, measure, layout.height);
       const z = (p) => (p.layer.plane === "background" ? 0 : 1e4) + row.layers.indexOf(p.layer);
       const shapeGroup = (items, x, y, cluster = false) => {
         const p = items[0], g = element("g", { class: "vt-composed-record", tabindex: 0, role: "button", "aria-label": cluster ? `${items.length} items; select to list` : p.record.title, "data-key": p.key, "data-records": items.map((i) => i.record.id).join("|"), "data-lane": p.laneId, "data-track": p.subtrack });
@@ -652,12 +699,9 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
           if (p.xEnd === p.x) g.appendChild(element("line", { x1: x, x2: x, y1: y - 6, y2: y + 6, stroke: p.layer.color, "stroke-width": 2 }));
           else g.appendChild(element("path", { ...attrs, d: ribbonPath(p) }));
         } else if (p.style === "dot") g.appendChild(element("circle", { ...attrs, cx: x, cy: y, r: 5 }));
-        else if (p.style === "line") g.appendChild(element("path", { d: Array.from({ length: 25 }, (_, i) => {
-          const xx = x + (p.xEnd - x) * i / 24;
-          return `${i ? "L" : "M"} ${xx} ${centerAt(p.curve, xx)}`;
-        }).join(" "), stroke: p.layer.color, "stroke-width": 2, fill: "none", opacity: p.layer.opacity }));
+        else if (p.style === "line") g.appendChild(element("path", { d: curvePath(p), stroke: p.layer.color, "stroke-width": 2, fill: "none", opacity: p.layer.opacity }));
         else g.appendChild(element("rect", { ...attrs, x, y: p.anchor ? y - 28 : 16, width: Math.max(1, p.xEnd - x), height: p.anchor ? 56 : layout.height - 32 }));
-        if (!p.isAnchor && p.style !== "band") g.appendChild(element("rect", { x: x - 4, y: y - 10, width: Math.max(12, p.xEnd - x + 8), height: 20, fill: "transparent", class: "vt-hit-area" }));
+        if (!p.isAnchor && p.style !== "band") g.appendChild(element("path", { d: curvePath(p), stroke: "transparent", "stroke-width": 20, fill: "none", class: "vt-hit-area" }));
         if ((selected == null ? void 0 : selected.key) === p.key) g.classList.add("is-selected");
         svg.appendChild(g);
       }
@@ -665,9 +709,23 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
         const members = cluster.items.filter((p) => visible.has(p.record.id));
         if (members.length) svg.appendChild(shapeGroup(members, cluster.x, cluster.y, true));
       }
+      const callouts = element("g", { class: "vt-callouts" });
+      svg.appendChild(callouts);
       for (const box of labelBoxes) {
         const p = shown.find((i) => i.key === box.key);
-        svg.appendChild(element("text", { x: box.x, y: box.y + 12, class: "vt-adaptive-label", "data-for": p.key }, p.record.title));
+        if (box.leader) callouts.appendChild(element("path", { d: `M ${box.sourceX} ${box.sourceY} L ${box.x + Math.min(box.width / 2, 12)} ${box.y + 15}`, class: "vt-label-leader" }));
+        const label = element("g", { class: "vt-name-button", tabindex: 0, role: "button", "aria-label": p.record.title });
+        label.appendChild(element("title", {}, p.record.title));
+        label.appendChild(element("rect", { x: box.x - 2, y: box.y - 1, width: box.width + 4, height: box.height + 2, rx: 3, class: "vt-label-backdrop" }));
+        label.appendChild(element("text", { x: box.x, y: box.y + 12, class: "vt-adaptive-label", "data-for": p.key }, box.text));
+        label.addEventListener("click", () => details([p]));
+        label.addEventListener("keydown", (e) => {
+          if (["Enter", " "].includes(e.key)) {
+            e.preventDefault();
+            details([p]);
+          }
+        });
+        callouts.appendChild(label);
       }
     }
     diagnostics.hidden = !warningCount;
@@ -680,12 +738,12 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     scroll.scrollTop = previousTop;
   };
   const zoomBy = (factor) => {
-    const old = zoom, viewport = Math.max(260, scroll.clientWidth), oldPlot = (viewport - gutter) * zoom;
+    const old = zoom, viewport = Math.max(260, scroll.clientWidth), basePlot = Math.max(720, viewport - gutter), oldPlot = basePlot * zoom;
     const relative = selected ? (selected.start - bounds.min) / (bounds.max - bounds.min) : Math.max(0, (scroll.scrollLeft + viewport / 2 - gutter) / Math.max(1, oldPlot));
     zoom = Math.max(1, Math.min(32, zoom * factor));
     if (old === zoom) return;
     draw();
-    scroll.scrollLeft = gutter + relative * (viewport - gutter) * zoom - viewport / 2;
+    scroll.scrollLeft = gutter + relative * basePlot * zoom - viewport / 2;
   };
   button(toolbar, "Fit", () => {
     zoom = 1;

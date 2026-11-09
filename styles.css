@@ -62,6 +62,10 @@
 .vt-chart .vt-composed-record:focus>path,.vt-chart .vt-composed-record.is-selected>path,.vt-chart .vt-composed-record:focus>circle,.vt-chart .vt-composed-record.is-selected>circle{stroke:var(--text-normal);stroke-width:2px}
 .vt-chart .vt-composed-record:hover .vt-hit-area{fill:var(--text-normal);opacity:.12}
 .vt-chart .vt-cluster-text{fill:var(--background-primary);font-size:12px;font-weight:700;pointer-events:none}
+.vt-chart .vt-label-leader{stroke:var(--text-muted);stroke-width:.6;opacity:.5;fill:none;pointer-events:none}
+.vt-chart .vt-label-backdrop{fill:var(--background-secondary);fill-opacity:.86}
+.vt-chart .vt-name-button{cursor:pointer;outline:none}
+.vt-chart .vt-name-button:hover .vt-label-backdrop,.vt-chart .vt-name-button:focus .vt-label-backdrop{stroke:var(--text-normal);stroke-width:1}
 .vt-chart-hint{font-size:12px;color:var(--text-muted);padding:10px 0;min-height:32px}
 .vt-inspector{position:absolute;right:8px;top:50px;width:310px;max-height:calc(100% - 80px);overflow:auto;z-index:8;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px;padding:16px;box-sizing:border-box;box-shadow:0 10px 30px #0003}
 .vt-inspector[hidden],.vt-diagnostics[hidden]{display:none}

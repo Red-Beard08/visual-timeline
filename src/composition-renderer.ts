@@ -1,7 +1,7 @@
 import type {TimelineRecord} from './types';
 import type {Composition,CompositionSettings} from './composition';
 import {matches} from './composition';
-import {layoutRow,placeLabels,centerAt,ribbonPath,PlacedItem} from './layout';
+import {layoutRow,placeLabels,centerAt,ribbonPath,curvePath,PlacedItem} from './layout';
 import {formatTime,timeTicks,historicalDate} from './dates';
 const NS=['http:','','www.w3.org','2000','svg'].join('/');
 function element(tag:string,attrs:Record<string,string|number>={},text?:string):SVGElement {
@@ -46,7 +46,7 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
     if(dead)return;
     const previousLeft=scroll.scrollLeft,previousTop=scroll.scrollTop;
     scroll.empty();diagnostics.empty();
-    const viewport=Math.max(260,scroll.clientWidth),plotWidth=Math.max(200,viewport-gutter)*zoom,total=plotWidth+gutter;
+    const viewport=Math.max(260,scroll.clientWidth),plotWidth=Math.max(720,viewport-gutter)*zoom,total=plotWidth+gutter;
     lastWidth=viewport;
     const canvas=scroll.createDiv({cls:'vt-chart-canvas'});canvas.style.width=`${total}px`;
     const axis=canvas.createDiv({cls:'vt-sticky-axis'});axis.style.width=`${total}px`;
@@ -62,7 +62,7 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
       for(const lane of layout.lanes){const l=labels.createDiv({cls:'vt-lane-name',text:lane.title});l.style.top=`${lane.y-14}px`;}
       const svg=element('svg',{width:plotWidth,height:layout.height,class:'vt-composition-svg','aria-label':row.name});strip.appendChild(svg);
       const shown=layout.items.filter(p=>visible.has(p.record.id));
-      const labelBoxes=placeLabels(shown,plotWidth,measure);
+      const labelBoxes=placeLabels(shown,plotWidth,measure,layout.height);
       const z=(p:PlacedItem)=>(p.layer.plane==='background'?0:10000)+row.layers.indexOf(p.layer);
       const shapeGroup=(items:PlacedItem[],x:number,y:number,cluster=false)=>{
         const p=items[0],g=element('g',{class:'vt-composed-record',tabindex:0,role:'button','aria-label':cluster?`${items.length} items; select to list`:p.record.title,'data-key':p.key,'data-records':items.map(i=>i.record.id).join('|'),'data-lane':p.laneId,'data-track':p.subtrack});
@@ -80,13 +80,22 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
           if(p.xEnd===p.x)g.appendChild(element('line',{x1:x,x2:x,y1:y-6,y2:y+6,stroke:p.layer.color,'stroke-width':2}));
           else g.appendChild(element('path',{...attrs,d:ribbonPath(p)}));
         }else if(p.style==='dot')g.appendChild(element('circle',{...attrs,cx:x,cy:y,r:5}));
-        else if(p.style==='line')g.appendChild(element('path',{d:Array.from({length:25},(_,i)=>{const xx=x+(p.xEnd-x)*i/24;return `${i?'L':'M'} ${xx} ${centerAt(p.curve,xx)}`;}).join(' '),stroke:p.layer.color,'stroke-width':2,fill:'none',opacity:p.layer.opacity}));
+        else if(p.style==='line')g.appendChild(element('path',{d:curvePath(p),stroke:p.layer.color,'stroke-width':2,fill:'none',opacity:p.layer.opacity}));
         else g.appendChild(element('rect',{...attrs,x,y:p.anchor?y-28:16,width:Math.max(1,p.xEnd-x),height:p.anchor?56:layout.height-32}));
-        if(!p.isAnchor&&p.style!=='band')g.appendChild(element('rect',{x:x-4,y:y-10,width:Math.max(12,p.xEnd-x+8),height:20,fill:'transparent',class:'vt-hit-area'}));
+        if(!p.isAnchor&&p.style!=='band')g.appendChild(element('path',{d:curvePath(p),stroke:'transparent','stroke-width':20,fill:'none',class:'vt-hit-area'}));
         if(selected?.key===p.key)g.classList.add('is-selected');svg.appendChild(g);
       }
       for(const cluster of layout.clusters){const members=cluster.items.filter(p=>visible.has(p.record.id));if(members.length)svg.appendChild(shapeGroup(members,cluster.x,cluster.y,true));}
-      for(const box of labelBoxes){const p=shown.find(i=>i.key===box.key)!;svg.appendChild(element('text',{x:box.x,y:box.y+12,class:'vt-adaptive-label','data-for':p.key},p.record.title));}
+      const callouts=element('g',{class:'vt-callouts'});svg.appendChild(callouts);
+      for(const box of labelBoxes){
+        const p=shown.find(i=>i.key===box.key)!;
+        if(box.leader)callouts.appendChild(element('path',{d:`M ${box.sourceX} ${box.sourceY} L ${box.x+Math.min(box.width/2,12)} ${box.y+15}`,class:'vt-label-leader'}));
+        const label=element('g',{class:'vt-name-button',tabindex:0,role:'button','aria-label':p.record.title});
+        label.appendChild(element('title',{},p.record.title));
+        label.appendChild(element('rect',{x:box.x-2,y:box.y-1,width:box.width+4,height:box.height+2,rx:3,class:'vt-label-backdrop'}));
+        label.appendChild(element('text',{x:box.x,y:box.y+12,class:'vt-adaptive-label','data-for':p.key},box.text));
+        label.addEventListener('click',()=>details([p]));label.addEventListener('keydown',e=>{if(['Enter',' '].includes((e as KeyboardEvent).key)){e.preventDefault();details([p]);}});callouts.appendChild(label);
+      }
     }
     diagnostics.hidden=!warningCount;
     if(warningCount){diagnostics.createEl('summary',{text:`${warningCount} records or relationships need attention`});for(const d of warningList)button(diagnostics,`${d.record.title}: ${d.message}`,()=>details([{record:d.record,layer:{name:'Unassigned'},key:`diagnostic/${d.record.id}`} as PlacedItem]));}
@@ -94,9 +103,9 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
     scroll.scrollLeft=previousLeft;scroll.scrollTop=previousTop;
   };
   const zoomBy=(factor:number)=>{
-    const old=zoom,viewport=Math.max(260,scroll.clientWidth),oldPlot=(viewport-gutter)*zoom;
+    const old=zoom,viewport=Math.max(260,scroll.clientWidth),basePlot=Math.max(720,viewport-gutter),oldPlot=basePlot*zoom;
     const relative=selected?(selected.start-bounds.min)/(bounds.max-bounds.min):Math.max(0,(scroll.scrollLeft+viewport/2-gutter)/Math.max(1,oldPlot));
-    zoom=Math.max(1,Math.min(32,zoom*factor));if(old===zoom)return;draw();scroll.scrollLeft=gutter+relative*(viewport-gutter)*zoom-viewport/2;
+    zoom=Math.max(1,Math.min(32,zoom*factor));if(old===zoom)return;draw();scroll.scrollLeft=gutter+relative*basePlot*zoom-viewport/2;
   };
   button(toolbar,'Fit',()=>{zoom=1;draw();scroll.scrollLeft=0;});button(toolbar,'Zoom in',()=>zoomBy(2));button(toolbar,'Zoom out',()=>zoomBy(.5));
   const observer=new ResizeObserver(()=>{if(Math.abs(scroll.clientWidth-lastWidth)>1)draw();});observer.observe(scroll);

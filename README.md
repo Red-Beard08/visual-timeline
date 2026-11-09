@@ -12,6 +12,8 @@ Kingdoms can be drawn as filled SVG ribbons, with explicit successors branching 
 
 ## Relationship-aware layout (1.4)
 
+Version 1.4.1 uses exact shared cubic segments for anchor ribbons, ruler segments, and lines, so long durations do not flatten a branch curve. Primary reigns follow the centerline; genuine overlaps use contained subtracks. Adaptive labels use truncated names and clickable callouts, including names for clustered records. Narrow screens use a horizontally scrollable minimum canvas to avoid crushing all names into a phone-width chart. Explicitly hidden label settings remain respected.
+
 In Configure timeline, attach a layer to another layer using explicit relationships, and optionally provide per-record anchor overrides. Unresolved or ambiguous attachments appear in an Unassigned lane with diagnostics. Adaptive labels never shift historical positions; overlapping items remain accessible in selectable count markers. Fit and zoom control horizontal scale without changing lane height. Selection opens an inspector, rather than immediately navigating away. Settings upgrade in memory without rewriting historical notes.
 
 ## Rows, layers, and saved views (1.3)
