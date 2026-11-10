@@ -85,9 +85,13 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
   for(const p of ordinary.sort(chronological)){
     if(p.style==='band')continue;
     const key=`${p.laneId}/${p.layer.plane}/${p.style==='dot'?'points':'durations'}`;
-    const tracks=ends.get(key)||[];let track=tracks.findIndex(e=>e<=p.start);
+    const tracks=ends.get(key)||[];
+    // An instant (including a year-only start=end record) has no duration to reserve.
+    // Reserving an artificial epsilon here displaced the entire following reign.
+    const instant=p.start===p.end||p.style==='dot';
+    let track=instant?0:tracks.findIndex(e=>e<=p.start);
     if(track<0)track=tracks.length;
-    tracks[track]=Math.max(p.end,p.start+1e-8);ends.set(key,tracks);
+    if(!instant){tracks[track]=p.end;ends.set(key,tracks);}
     p.subtrack=track;p.clustered=track>=maxTracks;
     const visibleTrack=Math.min(track,maxTracks-1);
     const offset=p.style==='dot'?42:visibleTrack===0?0:(visibleTrack%2?-1:1)*Math.ceil(visibleTrack/2)*14;

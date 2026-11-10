@@ -58,3 +58,19 @@ for(const span of [200,10000]){
 const names=placeLabels(crowded.items,1000,s=>s.length*7,crowded.height);
 assert.equal(names.length,crowded.items.length,'Clustered short items must still have name labels');
 assert.ok(names.every(n=>n.text.length&&n.x>=0&&n.x+n.width<=1000));
+// Same-year markers must not displace subsequent durations; actual overlaps still do.
+for(const [label,date,end]of [['Northern succession','885 BC','874 BC'],['Judah succession','841 BC','835 BC'],['Day boundary','0900-01-02','0900-01-03']]){
+  const marker=record(label+' marker','person',date,date,{related_to:['A']}),successor=record(label+' successor','person',date,end,{related_to:['A']});
+  for(const input of [[marker,successor],[successor,marker]]){
+    const result=layoutRow(row,[a,...input],bounds,1000,{});
+    assert.equal(get(result,marker.id).subtrack,0);
+    assert.equal(get(result,successor.id).subtrack,0,'Zero-duration marker cannot reserve the center track');
+    assert.equal(get(result,successor.id).curve.offset,0);
+  }
+}
+const overlapA=record('Overlap A','person','950 BC','920 BC',{related_to:['A']}),overlapB=record('Overlap B','person','940 BC','930 BC',{related_to:['A']});
+const overlapping=layoutRow(row,[a,overlapA,overlapB],bounds,1000,{});
+assert.notEqual(get(overlapping,overlapA.id).subtrack,get(overlapping,overlapB.id).subtrack,'True duration overlap must retain separate tracks');
+const ending=record('Ending','person','950 BC','940 BC',{related_to:['A']}),next=record('Next','person','940 BC','930 BC',{related_to:['A']});
+const adjacent=layoutRow(row,[a,ending,next],bounds,1000,{});
+assert.equal(get(adjacent,next.id).subtrack,0,'Touching duration boundaries are not overlaps');

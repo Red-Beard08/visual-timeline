@@ -437,10 +437,13 @@ function layoutRow(row, records, bounds, width, styles) {
     if (p.style === "band") continue;
     const key = `${p.laneId}/${p.layer.plane}/${p.style === "dot" ? "points" : "durations"}`;
     const tracks = ends.get(key) || [];
-    let track = tracks.findIndex((e) => e <= p.start);
+    const instant = p.start === p.end || p.style === "dot";
+    let track = instant ? 0 : tracks.findIndex((e) => e <= p.start);
     if (track < 0) track = tracks.length;
-    tracks[track] = Math.max(p.end, p.start + 1e-8);
-    ends.set(key, tracks);
+    if (!instant) {
+      tracks[track] = p.end;
+      ends.set(key, tracks);
+    }
     p.subtrack = track;
     p.clustered = track >= maxTracks;
     const visibleTrack = Math.min(track, maxTracks - 1);
