@@ -320,9 +320,6 @@ function centerAt(curve, x) {
   return curve.origin + (curve.target - curve.origin) * t * t * (3 - 2 * t) + (curve.offset || 0) * (((_a = curve.initialScale) != null ? _a : 1) + (1 - ((_b = curve.initialScale) != null ? _b : 1)) * t);
 }
 var chronological = (a, b) => a.start - b.start || a.end - b.end || a.key.localeCompare(b.key);
-var STREAM_HALF = 28;
-var BAR_HALF = 32;
-var OVERLAP_HALF = 5;
 function layoutRow(row, records, bounds, width, styles) {
   const items = [], diagnostics = [], lanes = [];
   const x = (n) => 24 + (n - bounds.min) / Math.max(1 / 366, bounds.max - bounds.min) * (width - 48);
@@ -334,7 +331,7 @@ function layoutRow(row, records, bounds, width, styles) {
       continue;
     }
     const style = styleFor(record, layer, styles), isAnchor = !layer.attachment && (style === "stream" || anchorLayers.has(layer.id));
-    items.push({ key: `${layer.id}/${record.id}`, record, layer, style, start, end, x: x(start), xEnd: x(end), laneId: "", subtrack: 0, y: 0, curve: { start: 0, settle: 0, origin: 0, target: 0 }, isAnchor, half: isAnchor ? STREAM_HALF : style === "box" ? BAR_HALF : OVERLAP_HALF, initialHalf: STREAM_HALF, terminal: true, clustered: false });
+    items.push({ key: `${layer.id}/${record.id}`, record, layer, style, start, end, x: x(start), xEnd: x(end), laneId: "", subtrack: 0, y: 0, curve: { start: 0, settle: 0, origin: 0, target: 0 }, isAnchor, half: isAnchor ? 28 : 5, initialHalf: 28, terminal: true, clustered: false });
   }
   items.sort(chronological);
   const anchors = items.filter((i) => i.isAnchor), parents = /* @__PURE__ */ new Map(), candidates = /* @__PURE__ */ new Map();
@@ -400,9 +397,9 @@ function layoutRow(row, records, bounds, width, styles) {
   for (const a of anchors) {
     const parent = parents.get(a), siblings = parent ? children(parent) : [], index = siblings.indexOf(a);
     a.laneId = a.key;
-    a.initialHalf = parent ? STREAM_HALF / siblings.length : STREAM_HALF;
+    a.initialHalf = parent ? 28 / siblings.length : 28;
     a.terminal = children(a).length === 0;
-    const origin = parent ? parent.y - STREAM_HALF + a.initialHalf + index * 2 * a.initialHalf : a.y;
+    const origin = parent ? parent.y - 28 + a.initialHalf + index * 2 * a.initialHalf : a.y;
     a.curve = { start: a.x, settle: a.x + Math.min(110, (a.xEnd - a.x) * 0.45), origin, target: a.y, initialScale: a.initialHalf / a.half };
     lanes.push({ id: a.key, title: a.record.title, y: a.y });
   }
@@ -502,7 +499,6 @@ function layoutRow(row, records, bounds, width, styles) {
     }
     p.subtrack = track;
     p.clustered = track >= maxTracks;
-    if (p.style === "box" && track > 0) p.half = OVERLAP_HALF;
     const visibleTrack = Math.min(track, maxTracks - 1);
     const spacing = Math.min(10, 20 / Math.max(1, Math.ceil((maxTracks - 1) / 2)));
     const offset = p.style === "dot" ? 0 : visibleTrack === 0 ? 0 : (visibleTrack % 2 ? -1 : 1) * Math.ceil(visibleTrack / 2) * spacing;
@@ -788,7 +784,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   };
   root.addEventListener("keydown", onKey);
   const draw = () => {
-    var _a, _b;
+    var _a;
     if (dead) return;
     const previousLeft = scroll.scrollLeft, previousTop = scroll.scrollTop;
     scroll.empty();
@@ -866,7 +862,6 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
         }
         return g;
       };
-      const integratedGroups = [];
       for (const p of [...shown].filter((p2) => !p2.clustered).sort((a, b) => z(a) - z(b))) {
         const x = p.x, y = centerAt(p.curve, x), g = shapeGroup([p], x, y);
         const attachedColors = [...new Set(layout.items.filter((i) => i.anchorKey === p.key && ["box", "stream", "line"].includes(i.style)).map((i) => i.layer.color))];
@@ -878,13 +873,11 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
             const clip = element("clipPath", { id: id2, clipPathUnits: "userSpaceOnUse" });
             clip.appendChild(element("rect", { x: segment.from, y: 0, width: segment.to - segment.from, height: layout.height }));
             svg.appendChild(clip);
-            g.appendChild(element("path", { d: segment.path, fill: p.layer.color, "fill-opacity": p.layer.opacity * (segment.kind === "overlay" ? 0.28 : 0.18), stroke: p.layer.color, "stroke-opacity": 0.65, "stroke-width": 1, "stroke-dasharray": segment.kind === "continuation" ? "5 4" : "none", "clip-path": `url(#${id2})`, "pointer-events": segment.kind === "overlay" ? "none" : "visiblePainted", class: `vt-integrated-band vt-integrated-${segment.kind}`, "data-anchor": segment.anchor.record.id }));
+            g.appendChild(element("path", { d: segment.path, fill: p.layer.color, "fill-opacity": p.layer.opacity * (segment.kind === "overlay" ? 0.28 : 0.18), stroke: p.layer.color, "stroke-opacity": 0.65, "stroke-width": 1, "stroke-dasharray": segment.kind === "continuation" ? "5 4" : "none", "clip-path": `url(#${id2})`, class: `vt-integrated-band vt-integrated-${segment.kind}`, "data-anchor": segment.anchor.record.id }));
           }
         } else if (p.style === "stream" || p.style === "box") {
-          if (p.xEnd === p.x) {
-            const half = halfAt(p, x);
-            g.appendChild(element("line", { x1: x, x2: x, y1: y - half, y2: y + half, stroke: p.layer.color, "stroke-width": 2 }));
-          } else g.appendChild(element("path", { ...attrs, d: ribbonPath(p), class: p.isAnchor ? "vt-anchor-shape" : "vt-duration-shape" }));
+          if (p.xEnd === p.x) g.appendChild(element("line", { x1: x, x2: x, y1: y - 6, y2: y + 6, stroke: p.layer.color, "stroke-width": 2 }));
+          else g.appendChild(element("path", { ...attrs, d: ribbonPath(p), class: p.isAnchor ? "vt-anchor-shape" : "vt-duration-shape" }));
         } else if (p.style === "dot") g.appendChild(element("circle", { ...attrs, cx: x, cy: y, r: 5 }));
         else if (p.style === "line") g.appendChild(element("path", { d: curvePath(p), stroke: p.layer.color, "stroke-width": 2, fill: "none", opacity: p.layer.opacity }));
         else g.appendChild(element("rect", { ...attrs, opacity: p.context ? p.layer.opacity * 0.18 : p.layer.opacity, x, y: y - (p.context ? 16 : 28), width: Math.max(2, p.xEnd - x), height: p.context ? 32 : 56, rx: p.context ? 4 : 0, class: "vt-context-band" }));
@@ -897,9 +890,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
         }
         if ((selected == null ? void 0 : selected.key) === p.key) g.classList.add("is-selected");
         svg.appendChild(g);
-        if ((_b = p.integratedAnchors) == null ? void 0 : _b.length) integratedGroups.push(g);
       }
-      for (const g of integratedGroups) svg.appendChild(g);
       for (const cluster of layout.clusters) {
         const members = cluster.items.filter((p) => visible.has(p.record.id));
         if (members.length) svg.appendChild(shapeGroup(members, cluster.x, cluster.y, true));
@@ -908,18 +899,12 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       svg.appendChild(callouts);
       for (const box of labelBoxes) {
         const p = shown.find((i) => i.key === box.key);
-        const below = box.y > box.sourceY, half = p.clustered ? 10 : halfAt(p, box.sourceX), edgeY = box.sourceY + (below ? half : -half);
-        const endY = below ? box.y - 3 : box.y + 18, targetX = box.x + Math.min(box.width / 2, 8), bendY = below ? Math.max(edgeY + 4, endY - 7) : Math.min(edgeY - 4, endY + 7);
-        if (box.leader) callouts.appendChild(element("path", { d: `M ${box.sourceX} ${edgeY} V ${bendY} H ${targetX} V ${endY}`, class: "vt-label-leader" }));
+        const endY = box.y > box.sourceY ? box.y - 3 : box.y + 18, targetX = box.x + Math.min(box.width / 2, 8), bendY = endY + (box.y > box.sourceY ? -7 : 7);
+        if (box.leader) callouts.appendChild(element("path", { d: `M ${box.sourceX} ${box.sourceY} V ${bendY} H ${targetX} V ${endY}`, class: "vt-label-leader" }));
         const label = element("g", { class: `vt-name-button vt-label-${box.kind}`, tabindex: 0, role: "button", "aria-label": p.record.title });
         label.appendChild(element("title", {}, p.record.title));
         label.appendChild(element("rect", { x: box.x - 3, y: box.y - 3, width: box.width + 6, height: box.height + 6, rx: 2, class: "vt-label-backdrop" }));
-        const text2 = element("text", { x: box.x, y: box.y + 12, class: "vt-adaptive-label", "data-for": p.key }, box.text);
-        if (p.isAnchor) {
-          const cover = shown.find((i) => i.anchorKey === p.key && i.style === "box" && i.subtrack === 0 && !i.clustered && i.layer.opacity >= 0.9 && i.x <= box.sourceX && i.xEnd >= box.sourceX);
-          if (cover) text2.style.fill = contrastText(cover.layer.color);
-        }
-        label.appendChild(text2);
+        label.appendChild(element("text", { x: box.x, y: box.y + 12, class: "vt-adaptive-label", "data-for": p.key }, box.text));
         label.addEventListener("click", () => details([p]));
         label.addEventListener("keydown", (e) => {
           if (["Enter", " "].includes(e.key)) {

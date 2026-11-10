@@ -145,7 +145,7 @@ The dashboard has a compact title/actions strip, one wrapping filter/control row
 
 The chart has one shared horizontal time scale. Its sticky date ruler is `38px` high. A sticky lane gutter is `24px` for the stream-led composition or `160px` when independent non-stream/non-band records require lane labels. The base plot is at least `1000px`; Fit returns to base scale and zoom is bounded from `1` to `32`. Horizontal overflow is intentional, including on narrow screens.
 
-Historical positions are calculated from note dates, with `24px` plot insets. Anchors start with a `28px` half-thickness (56px streams); primary duration boxes use a `32px` half-thickness (64px bars), standing slightly proud of their streams. True overlapping reigns retain compact `5px` half-thickness internal tracks. Both stream and bar thickness scale together through the fork transition, without moving their centerlines. Independent/terminal lane centers are separated by `192px`. Configured row height remains a minimum. Zoom changes x positions and recomputes the curves without stretching y coordinates or thicknesses.
+Historical positions are calculated from note dates, with `24px` plot insets. Anchors start with a `28px` half-thickness; attached durations use a `5px` half-thickness. Independent/terminal lane centers are separated by `192px`. Configured row height remains a minimum, not a reason to compress names or ribbons. Zoom changes x positions and recomputes the curves without stretching y coordinates or thicknesses.
 
 Attached names use up to four fixed levels separated by the name-rail step. Uppermost and lowermost branches place their rails outside their own stream; other records use the upper rail. Orthogonal leaders tie labels back to their actual shapes. Collision placement may use space along the duration, abbreviate a name or use a nearby remaining text slot; it never invents another historical lane. Not every full name is guaranteed to fit in an overview.
 
@@ -182,8 +182,6 @@ Mouse/pen drag pans horizontally after a `5px` movement threshold; it suppresses
 ### Aligned name rails
 
 Names are unboxed text with subdued orthogonal leaders. Anchor names sit within the broad ribbon; attached names occupy their branch's fixed text rails. Hover underlines a name; focus outlines its transparent backing rectangle. The label and shape are independently selectable, and full titles remain available through accessible labels, native SVG titles and the selection strip.
-
-Leaders start at the visible shape edge. Kingdom names over opaque duration bars choose black/white text from the bar color to retain contrast. Integrated context tint paints above duration fills so the era remains visible, but overlap paint passes pointer input to the reign beneath it; context-only tails remain selectable.
 
 ### Clusters and selection
 

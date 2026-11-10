@@ -1,9 +1,5 @@
 # Visual Timeline
 
-## Bars above streams (1.5.2)
-
-Primary duration bars are now 64px high over 56px background streams, with the same dates and curved centerlines. True overlapping reigns retain compact internal tracks. Labels and boundary marks follow the larger shape edges, while integrated era tint remains visible without intercepting clicks on reigns.
-
 ## Integrated context bands (1.5.1)
 
 Choose **Band layout → Integrated with related streams** to incorporate an era or other background context into the main flow. Explicit relationship references (or display overrides) select one or multiple anchor streams. The band tints their exact contours during the overlapping dates; it does not create another historical lane.
