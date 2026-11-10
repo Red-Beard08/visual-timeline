@@ -9,7 +9,7 @@ export interface TimelineLayer {
   types: string[]; categories: string[]; tags: string[];
   style: DisplayStyle | 'default'; plane: 'background' | 'foreground';
   opacity: number; color: string; labels: 'adaptive' | 'always' | 'selection' | 'hidden';
-  bandPlacement?: 'context' | 'lane'; tintFromAttached?: boolean;
+  bandPlacement?: 'context' | 'lane' | 'integrated'; tintFromAttached?: boolean;
 }
 export interface TimelineRow {anchorOrder?: string[]; maxSubtracks?: number;id: string; name: string; height: number; enabled: boolean; layers: TimelineLayer[];}
 export interface Composition {id: string; name: string; rows: TimelineRow[]; yearGrid?: boolean;}
@@ -46,7 +46,7 @@ export function normalizeComposition(value:unknown):CompositionSettings {
   if(!views.length)return defaults();
   for(const view of views)for(const row of view.rows)for(const layer of row.layers){
     const stored=raw.views.find(v=>v.id===view.id)?.rows?.find(r=>r.id===row.id)?.layers?.find(l=>l.id===layer.id);
-    layer.bandPlacement=stored?.bandPlacement==='lane'?'lane':'context';
+    layer.bandPlacement=stored?.bandPlacement==='integrated'?'integrated':stored?.bandPlacement==='lane'?'lane':'context';
     layer.tintFromAttached=stored?.tintFromAttached===true;
   }
   const categoryStyles:Record<string,DisplayStyle>={};

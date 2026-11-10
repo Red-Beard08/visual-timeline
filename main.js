@@ -279,7 +279,7 @@ function normalizeComposition(value) {
   if (!views.length) return defaults();
   for (const view of views) for (const row of view.rows) for (const layer of row.layers) {
     const stored = (_d = (_c = (_b = (_a = raw.views.find((v) => v.id === view.id)) == null ? void 0 : _a.rows) == null ? void 0 : _b.find((r) => r.id === row.id)) == null ? void 0 : _c.layers) == null ? void 0 : _d.find((l) => l.id === layer.id);
-    layer.bandPlacement = (stored == null ? void 0 : stored.bandPlacement) === "lane" ? "lane" : "context";
+    layer.bandPlacement = (stored == null ? void 0 : stored.bandPlacement) === "integrated" ? "integrated" : (stored == null ? void 0 : stored.bandPlacement) === "lane" ? "lane" : "context";
     layer.tintFromAttached = (stored == null ? void 0 : stored.tintFromAttached) === true;
   }
   const categoryStyles = {};
@@ -416,6 +416,32 @@ function layoutRow(row, records, bounds, width, styles) {
   };
   const ordinary = items.filter((i) => !i.isAnchor);
   for (const p of [...ordinary].sort((a, b) => a.layer.id.localeCompare(b.layer.id) || chronological(a, b))) {
+    if (p.style === "band" && p.layer.bandPlacement === "integrated") {
+      const binding2 = p.layer.attachment, peers = anchors.filter((a) => !binding2 || a.layer.id === binding2.anchorLayer), rs = peers.map((a) => a.record);
+      const override = binding2 == null ? void 0 : binding2.overrides[p.record.id];
+      const refs = override ? [override] : p.record.relations[(binding2 == null ? void 0 : binding2.relationship) || "related_to"] || [];
+      for (const ref of refs) if (!resolveReference(ref, rs)) {
+        const v = refName(ref), ambiguous = rs.filter((r) => r.id === v || r.path.replace(/\.md$/, "") === v || r.file.basename === v || (r.aliases || []).includes(v)).length > 1;
+        if (ambiguous) diagnostics.push({ record: p.record, message: `Ambiguous integrated stream reference: ${ref}` });
+        else if (!resolveReference(ref, records)) diagnostics.push({ record: p.record, message: `Unresolved integrated stream reference: ${ref}` });
+      }
+      const resolved = [...new Set(refs.map((ref) => resolveReference(ref, rs)).filter(Boolean))];
+      const targets = peers.filter((a) => resolved.includes(a.record) && p.end >= a.start);
+      if (targets.length) {
+        p.integratedAnchors = ordered(targets);
+        const first = p.integratedAnchors[0];
+        p.anchor = first.record;
+        p.anchorKey = first.key;
+        p.laneId = first.key;
+        p.y = first.y;
+        p.curve = first.curve;
+        for (const a of targets) if (p.start <= a.end && p.end > a.end) a.terminal = false;
+        continue;
+      }
+      diagnostics.push({ record: p.record, message: "Integrated band needs an explicit reference to an available stream; shown in context strip" });
+      p.context = true;
+      continue;
+    }
     if (p.style === "band" && p.layer.bandPlacement !== "lane") {
       p.context = true;
       continue;
@@ -510,6 +536,7 @@ function layoutRow(row, records, bounds, width, styles) {
   return { items, lanes, clusters, height, diagnostics };
 }
 function placeLabels(items, width, measure, height = 300) {
+  var _a, _b, _c;
   const boxes = [];
   const anchors = items.filter((p) => p.isAnchor);
   const minAnchor = Math.min(...anchors.map((p) => p.y)), maxAnchor = Math.max(...anchors.map((p) => p.y));
@@ -525,10 +552,10 @@ function placeLabels(items, width, measure, height = 300) {
     const sx = p.isAnchor ? Math.min(p.xEnd - 4, p.curve.settle + 10) : p.x + 2;
     const sy = centerAt(p.curve, sx);
     const available = Math.max(28, p.xEnd - sx - 8);
-    const preferred = p.isAnchor ? Math.min(300, available) : Math.min(170, Math.max(60, available));
+    const preferred = p.isAnchor || ((_a = p.integratedAnchors) == null ? void 0 : _a.length) ? Math.min(340, available) : Math.min(170, Math.max(60, available));
     const anchor = anchors.find((a) => a.key === p.anchorKey);
-    const rail = p.context ? [p.y - 7] : anchor && minAnchor !== maxAnchor && anchor.y === minAnchor ? [anchor.y - 54, anchor.y - 76, anchor.y - 98, anchor.y - 120] : anchor && minAnchor !== maxAnchor && anchor.y === maxAnchor ? [anchor.y + 40, anchor.y + 62, anchor.y + 84, anchor.y + 106] : p.isAnchor ? [sy + 9] : [sy - 54, sy - 76, sy - 98, sy - 120];
-    const kind = p.isAnchor ? "anchor" : p.context ? "context" : "record";
+    const rail = ((_b = p.integratedAnchors) == null ? void 0 : _b.length) ? [sy + 9, sy - 22] : p.context ? [p.y - 7] : anchor && minAnchor !== maxAnchor && anchor.y === minAnchor ? [anchor.y - 54, anchor.y - 76, anchor.y - 98, anchor.y - 120] : anchor && minAnchor !== maxAnchor && anchor.y === maxAnchor ? [anchor.y + 40, anchor.y + 62, anchor.y + 84, anchor.y + 106] : p.isAnchor ? [sy + 9] : [sy - 54, sy - 76, sy - 98, sy - 120];
+    const kind = p.isAnchor ? "anchor" : p.context || ((_c = p.integratedAnchors) == null ? void 0 : _c.length) ? "context" : "record";
     let placed = false;
     for (const budget of [preferred, Math.min(preferred, 100), Math.min(preferred, 68), 40, 34]) {
       const name = truncate(p.record.title, Math.min(budget, width - 12)), w = measure(name);
@@ -584,6 +611,20 @@ function ribbonPath(p) {
   const breaks = [p.x, p.xEnd, p.curve.start, p.curve.settle, p.xEnd - Math.min(30, (p.xEnd - p.x) * 0.2)].filter((x) => x >= p.x && x <= p.xEnd).sort((a, b) => a - b).filter((x, i, a) => i === 0 || x !== a[i - 1]).reverse();
   const lower = (x) => centerAt(p.curve, x) + halfAt(p, x);
   return curvePath(p, -1) + ` L ${p.xEnd},${lower(p.xEnd)} ` + breaks.slice(1).map((x, i) => cubicSection(breaks[i], x, lower)).join(" ") + " Z";
+}
+function integratedBandSegments(band) {
+  const result = [];
+  for (const anchor of band.integratedAnchors || []) {
+    const from = Math.max(band.x, anchor.x), to = Math.min(band.xEnd, anchor.xEnd);
+    if (to > from) result.push({ anchor, kind: "overlay", path: ribbonPath(anchor), from, to });
+    const tailStart = Math.max(band.x, anchor.xEnd);
+    if (band.xEnd > tailStart) {
+      const y = centerAt(anchor.curve, anchor.xEnd);
+      const tail = { ...band, integratedAnchors: void 0, x: tailStart, xEnd: band.xEnd, isAnchor: true, half: anchor.half, initialHalf: anchor.half, terminal: true, curve: { start: tailStart, settle: tailStart, origin: y, target: y } };
+      result.push({ anchor, kind: "continuation", path: ribbonPath(tail), from: tailStart, to: band.xEnd });
+    }
+  }
+  return result;
 }
 
 // src/drag-pan.ts
@@ -663,6 +704,7 @@ function installDragPan(scroll, onStart) {
 
 // src/composition-renderer.ts
 var NS = ["http:", "", "www.w3.org", "2000", "svg"].join("/");
+var nextClipId = 0;
 function element(tag, attrs = {}, text2) {
   const el = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
@@ -701,7 +743,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     if (returnFocus instanceof HTMLElement || returnFocus instanceof SVGElement) returnFocus.focus({ preventScroll: true });
   };
   const details = (items, focus = true) => {
-    var _a;
+    var _a, _b;
     if (focus) returnFocus = document.activeElement;
     inspector.empty();
     inspector.hidden = false;
@@ -717,7 +759,8 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       selected = p;
       const meta = header.createDiv({ cls: "vt-selection-meta" });
       meta.createSpan({ text: `${r.date.circa ? "c. " : ""}${r.date.display || [r.date.start, r.date.end].filter(Boolean).join(" \u2014 ")}` });
-      if (p.anchor) meta.createSpan({ text: p.anchor.title });
+      if ((_a = p.integratedAnchors) == null ? void 0 : _a.length) meta.createSpan({ text: `Context for: ${p.integratedAnchors.map((a) => a.record.title).join(" \xB7 ")}` });
+      else if (p.anchor) meta.createSpan({ text: p.anchor.title });
       const actions = header.createDiv({ cls: "vt-selection-actions" });
       button(actions, "Open note", () => open(r.path));
       const more = inspector.createEl("details", { cls: "vt-selection-more" });
@@ -726,7 +769,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       for (const [key, refs] of Object.entries(r.relations)) if (refs.length) {
         more.createEl("h4", { text: key.replace(/_/g, " ") });
         const ul = more.createEl("ul");
-        for (const ref of refs) ul.createEl("li", { text: ((_a = records.find((r2) => r2.id === ref || r2.path.replace(/\.md$/, "") === ref)) == null ? void 0 : _a.title) || ref });
+        for (const ref of refs) ul.createEl("li", { text: ((_b = records.find((r2) => r2.id === ref || r2.path.replace(/\.md$/, "") === ref)) == null ? void 0 : _b.title) || ref });
       }
       root.querySelectorAll(".vt-composed-record").forEach((e) => e.classList.toggle("is-selected", e.getAttribute("data-key") === p.key));
     }
@@ -741,6 +784,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   };
   root.addEventListener("keydown", onKey);
   const draw = () => {
+    var _a;
     if (dead) return;
     const previousLeft = scroll.scrollLeft, previousTop = scroll.scrollTop;
     scroll.empty();
@@ -784,7 +828,10 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       for (const y of [...new Set(layout.items.filter((p) => p.context).map((p) => p.y))]) {
         svg.appendChild(element("line", { x1: 0, x2: plotWidth, y1: y - 22, y2: y - 22, class: "vt-context-rule" }));
       }
-      const z = (p) => (p.layer.plane === "background" ? 0 : 1e4) + row.layers.indexOf(p.layer);
+      const z = (p) => {
+        var _a2;
+        return (((_a2 = p.integratedAnchors) == null ? void 0 : _a2.length) ? 5e3 : p.layer.plane === "background" ? 0 : 1e4) + row.layers.indexOf(p.layer);
+      };
       const shapeGroup = (items, x, y, cluster = false) => {
         const p = items[0], g = element("g", { class: "vt-composed-record", tabindex: 0, role: "button", "aria-label": cluster ? `${items.length} items; select to list` : p.record.title, "data-key": p.key, "data-records": items.map((i) => i.record.id).join("|"), "data-lane": p.laneId, "data-track": p.subtrack });
         const full = cluster ? `${items.length} items` : `${p.record.title} \xB7 ${p.record.date.display || p.record.date.start}`;
@@ -798,7 +845,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
           hint.textContent = full;
         });
         g.addEventListener("keydown", (e) => {
-          var _a;
+          var _a2;
           const k = e.key;
           if (k === "Enter" || k === " ") {
             e.preventDefault();
@@ -806,7 +853,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
           } else if (k === "ArrowRight" || k === "ArrowLeft") {
             e.preventDefault();
             const all = Array.from(scroll.querySelectorAll(".vt-composed-record")), i = all.indexOf(g);
-            (_a = all[(i + (k === "ArrowRight" ? 1 : all.length - 1)) % all.length]) == null ? void 0 : _a.focus();
+            (_a2 = all[(i + (k === "ArrowRight" ? 1 : all.length - 1)) % all.length]) == null ? void 0 : _a2.focus();
           }
         });
         if (cluster) {
@@ -820,7 +867,15 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
         const attachedColors = [...new Set(layout.items.filter((i) => i.anchorKey === p.key && ["box", "stream", "line"].includes(i.style)).map((i) => i.layer.color))];
         const color = p.isAnchor && p.layer.tintFromAttached && attachedColors.length === 1 ? attachedColors[0] : p.layer.color;
         const attrs = { fill: color, opacity: p.layer.opacity };
-        if (p.style === "stream" || p.style === "box") {
+        if ((_a = p.integratedAnchors) == null ? void 0 : _a.length) {
+          for (const segment of integratedBandSegments(p)) {
+            const id2 = `vt-integrated-band-${++nextClipId}`;
+            const clip = element("clipPath", { id: id2, clipPathUnits: "userSpaceOnUse" });
+            clip.appendChild(element("rect", { x: segment.from, y: 0, width: segment.to - segment.from, height: layout.height }));
+            svg.appendChild(clip);
+            g.appendChild(element("path", { d: segment.path, fill: p.layer.color, "fill-opacity": p.layer.opacity * (segment.kind === "overlay" ? 0.28 : 0.18), stroke: p.layer.color, "stroke-opacity": 0.65, "stroke-width": 1, "stroke-dasharray": segment.kind === "continuation" ? "5 4" : "none", "clip-path": `url(#${id2})`, class: `vt-integrated-band vt-integrated-${segment.kind}`, "data-anchor": segment.anchor.record.id }));
+          }
+        } else if (p.style === "stream" || p.style === "box") {
           if (p.xEnd === p.x) g.appendChild(element("line", { x1: x, x2: x, y1: y - 6, y2: y + 6, stroke: p.layer.color, "stroke-width": 2 }));
           else g.appendChild(element("path", { ...attrs, d: ribbonPath(p), class: p.isAnchor ? "vt-anchor-shape" : "vt-duration-shape" }));
         } else if (p.style === "dot") g.appendChild(element("circle", { ...attrs, cx: x, cy: y, r: 5 }));
@@ -1300,7 +1355,7 @@ var CompositionModal = class extends import_obsidian5.Modal {
           d.setValue(layer.style).onChange((v) => layer.style = v);
         });
         new import_obsidian5.Setting(details).setName("Placement").addDropdown((d) => d.addOption("background", "Background").addOption("foreground", "Foreground").setValue(layer.plane).onChange((v) => layer.plane = v));
-        new import_obsidian5.Setting(details).setName("Band layout").setDesc("Bands use a quiet context strip by default. Behind an anchor lane requires one unambiguous anchor; it never fills the entire chart.").addDropdown((d) => d.addOption("context", "Separate context strip").addOption("lane", "Behind the assigned lane").setValue(layer.bandPlacement || "context").onChange((v) => layer.bandPlacement = v));
+        new import_obsidian5.Setting(details).setName("Band layout").setDesc("Integrated bands tint explicitly related streams, with dashed context continuations after a stream ends. Multiple related streams are supported; kingdom dates never change.").addDropdown((d) => d.addOption("integrated", "Integrated with related streams").addOption("context", "Separate context strip").addOption("lane", "Behind the assigned lane").setValue(layer.bandPlacement || "context").onChange((v) => layer.bandPlacement = v));
         new import_obsidian5.Setting(details).setName("Tint streams from attached durations").setDesc("When every attached duration uses one color, use it for that anchor stream too. Mixed colors retain the stream layer color.").addToggle((t) => t.setValue(layer.tintFromAttached === true).onChange((v) => layer.tintFromAttached = v));
         new import_obsidian5.Setting(details).setName("Opacity").addSlider((s) => s.setLimits(10, 100, 5).setValue(layer.opacity * 100).setDynamicTooltip().onChange((v) => layer.opacity = v / 100));
         new import_obsidian5.Setting(details).setName("Color").addColorPicker((p) => p.setValue(layer.color).onChange((v) => layer.color = v));

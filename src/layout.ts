@@ -10,7 +10,7 @@ export interface PlacedItem {
   key:string; record:TimelineRecord; layer:TimelineLayer; style:DisplayStyle;
   start:number; end:number; x:number; xEnd:number; laneId:string; subtrack:number;
   y:number; curve:Curve; anchor?:TimelineRecord; anchorKey?:string; isAnchor:boolean;
-  half:number; initialHalf:number; terminal:boolean; clustered:boolean; context?:boolean;
+  half:number; initialHalf:number; terminal:boolean; clustered:boolean; context?:boolean; integratedAnchors?:PlacedItem[];
 }
 export interface Cluster {key:string; x:number; y:number; items:PlacedItem[];}
 export interface RowLayout {items:PlacedItem[];lanes:Lane[];clusters:Cluster[];height:number;diagnostics:Diagnostic[];}
@@ -69,6 +69,28 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
   // Stable layer IDs, not display order, determine the order of independent lanes.
   const ordinary=items.filter(i=>!i.isAnchor);
   for(const p of [...ordinary].sort((a,b)=>a.layer.id.localeCompare(b.layer.id)||chronological(a,b))){
+    if(p.style==='band'&&p.layer.bandPlacement==='integrated'){
+      const binding=p.layer.attachment,peers=anchors.filter(a=>!binding||a.layer.id===binding.anchorLayer),rs=peers.map(a=>a.record);
+      const override=binding?.overrides[p.record.id];
+      const refs=override?[override]:p.record.relations[binding?.relationship||'related_to']||[];
+      for(const ref of refs)if(!resolveReference(ref,rs)){
+        const v=refName(ref),ambiguous=rs.filter(r=>r.id===v||r.path.replace(/\.md$/,'')===v||r.file.basename===v||(r.aliases||[]).includes(v)).length>1;
+        if(ambiguous)diagnostics.push({record:p.record,message:`Ambiguous integrated stream reference: ${ref}`});
+        else if(!resolveReference(ref,records))diagnostics.push({record:p.record,message:`Unresolved integrated stream reference: ${ref}`});
+      }
+      const resolved=[...new Set(refs.map(ref=>resolveReference(ref,rs)).filter(Boolean))];
+      const targets=peers.filter(a=>resolved.includes(a.record)&&p.end>=a.start);
+      if(targets.length){
+        p.integratedAnchors=ordered(targets);const first=p.integratedAnchors[0];
+        p.anchor=first.record;p.anchorKey=first.key;p.laneId=first.key;p.y=first.y;p.curve=first.curve;
+        // The source kingdom still ends at its recorded date. Its adjacent context
+        // continues with a visibly different, dashed treatment, not another kingdom.
+        for(const a of targets)if(p.start<=a.end&&p.end>a.end)a.terminal=false;
+        continue;
+      }
+      diagnostics.push({record:p.record,message:'Integrated band needs an explicit reference to an available stream; shown in context strip'});
+      p.context=true;continue;
+    }
     // A context strip describes time across the row; it is not a single-anchor claim.
     if(p.style==='band'&&p.layer.bandPlacement!=='lane'){p.context=true;continue;}
     const binding=p.layer.attachment;
@@ -142,17 +164,18 @@ export function placeLabels(items:PlacedItem[],width:number,measure:(text:string
     const sx=p.isAnchor?Math.min(p.xEnd-4,p.curve.settle+10):p.x+2;
     const sy=centerAt(p.curve,sx);
     const available=Math.max(28,p.xEnd-sx-8);
-    const preferred=p.isAnchor?Math.min(300,available):Math.min(170,Math.max(60,available));
+    const preferred=p.isAnchor||p.integratedAnchors?.length?Math.min(340,available):Math.min(170,Math.max(60,available));
     const anchor=anchors.find(a=>a.key===p.anchorKey);
     // Keep callouts in their own kingdom's text rail, never in the other branch.
-    const rail=p.context?[p.y-7]
+    const rail=p.integratedAnchors?.length?[sy+9,sy-22]
+      : p.context?[p.y-7]
       : anchor&&minAnchor!==maxAnchor&&anchor.y===minAnchor
       ? [anchor.y-54,anchor.y-76,anchor.y-98,anchor.y-120]
       : anchor&&minAnchor!==maxAnchor&&anchor.y===maxAnchor
         ? [anchor.y+40,anchor.y+62,anchor.y+84,anchor.y+106]
         : p.isAnchor?[sy+9]
           : [sy-54,sy-76,sy-98,sy-120];
-    const kind=p.isAnchor?'anchor':p.context?'context':'record';
+    const kind=p.isAnchor?'anchor':p.context||p.integratedAnchors?.length?'context':'record';
     let placed=false;
     for(const budget of [preferred,Math.min(preferred,100),Math.min(preferred,68),40,34]){
       const name=truncate(p.record.title,Math.min(budget,width-12)),w=measure(name);
@@ -203,4 +226,21 @@ export function ribbonPath(p:PlacedItem):string {
     .filter(x=>x>=p.x&&x<=p.xEnd).sort((a,b)=>a-b).filter((x,i,a)=>i===0||x!==a[i-1]).reverse();
   const lower=(x:number)=>centerAt(p.curve,x)+halfAt(p,x);
   return curvePath(p,-1)+` L ${p.xEnd},${lower(p.xEnd)} `+breaks.slice(1).map((x,i)=>cubicSection(breaks[i],x,lower)).join(' ')+' Z';
+}
+
+export interface IntegratedBandSegment {anchor:PlacedItem;kind:'overlay'|'continuation';path:string;from:number;to:number;}
+/** A context reuses the exact stream contour. It never lengthens a source record. */
+export function integratedBandSegments(band:PlacedItem):IntegratedBandSegment[]{
+  const result:IntegratedBandSegment[]=[];
+  for(const anchor of band.integratedAnchors||[]){
+    const from=Math.max(band.x,anchor.x),to=Math.min(band.xEnd,anchor.xEnd);
+    if(to>from)result.push({anchor,kind:'overlay',path:ribbonPath(anchor),from,to});
+    const tailStart=Math.max(band.x,anchor.xEnd);
+    if(band.xEnd>tailStart){
+      const y=centerAt(anchor.curve,anchor.xEnd);
+      const tail:PlacedItem={...band,integratedAnchors:undefined,x:tailStart,xEnd:band.xEnd,isAnchor:true,half:anchor.half,initialHalf:anchor.half,terminal:true,curve:{start:tailStart,settle:tailStart,origin:y,target:y}};
+      result.push({anchor,kind:'continuation',path:ribbonPath(tail),from:tailStart,to:band.xEnd});
+    }
+  }
+  return result;
 }

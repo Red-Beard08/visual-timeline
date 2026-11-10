@@ -18,8 +18,17 @@ const assert=require('node:assert/strict');
   assert.equal(await page.locator('.vt-adaptive-label').count(),48);
   assert.equal(await page.locator('.vt-label-anchor').count(),3);
   assert.ok(await page.locator('.vt-diagnostics').isHidden());
-  assert.equal(await page.locator('.vt-context-band').count(),1);
-  assert.ok(await page.locator('.vt-context-band').evaluate(e=>Number(e.getAttribute('height'))<=56&&Number(e.getAttribute('opacity'))<=.2));
+  const integrated=composition.views[0].rows.some(r=>r.layers.some(l=>l.bandPlacement==='integrated'));
+  if(integrated){
+   assert.equal(await page.locator('.vt-context-band').count(),0,'Integrated context cannot leave a detached strip');
+   assert.equal(await page.locator('.vt-integrated-band').count(),3,'Two explicit streams have one overlay and two context continuations');
+   assert.equal(await page.locator('.vt-integrated-continuation').count(),2);
+   assert.equal(await page.locator('.vt-context-rule').count(),0);
+   assert.ok(await page.locator('.vt-integrated-continuation').evaluateAll(es=>es.every(e=>e.getAttribute('stroke-dasharray')==='5 4')));
+  }else{
+   assert.equal(await page.locator('.vt-context-band').count(),1);
+   assert.ok(await page.locator('.vt-context-band').evaluate(e=>Number(e.getAttribute('height'))<=56&&Number(e.getAttribute('opacity'))<=.2));
+  }
   assert.equal(await page.locator('.vt-chart-tools').count(),1);
   await page.locator('.vt-name-button[aria-label="Asa"]').click();
   assert.ok(await page.locator('.vt-inspector').isVisible());

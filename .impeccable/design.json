@@ -131,7 +131,7 @@
       "Do keep text and vertical geometry fixed in screen pixels while zooming the shared time axis.",
       "Do use up to four aligned name-rail levels, abbreviation, clusters and selection for real dense records.",
       "Do keep context bounded and subordinate, with full detail available separately.",
-      "Do calculate cluster numeral contrast against its configured marker fill."
+      "Do calculate cluster numeral contrast against its configured marker fill.", "Do integrate context into explicitly related stream contours when requested, using dashed context-only continuations without changing source dates."
     ],
     "donts": [
       "Don't force a dark theme or make the example history's colors universal.",

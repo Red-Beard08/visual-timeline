@@ -1,5 +1,11 @@
 # Visual Timeline
 
+## Integrated context bands (1.5.1)
+
+Choose **Band layout → Integrated with related streams** to incorporate an era or other background context into the main flow. Explicit relationship references (or display overrides) select one or multiple anchor streams. The band tints their exact contours during the overlapping dates; it does not create another historical lane.
+
+When the context outlasts a linked source record, a subdued dashed continuation stays on that stream's centerline until the context's own end date. Original kingdom endpoints and foreground event markers remain unchanged. The continuation represents the context record, not an inferred successor kingdom. Select its name or shaded area for the context's full note details. Ambiguous or missing references produce visible diagnostics while valid targets may still render. If none resolve, the band falls back to a separate strip rather than guessing an attachment. Existing separate-strip and lane modes remain available.
+
 ## Aligned name rails (1.5)
 
 The chart emphasizes continuity, then ruler changes, then details. Kingdom names stay inside their flowing streams; reign names use fixed text rails with short orthogonal leaders rather than floating label buttons. Dense names truncate without moving dates. True overlapping durations stay on contained subtracks; every record remains selectable directly or through its named label/count marker.
