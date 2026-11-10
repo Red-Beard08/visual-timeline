@@ -555,6 +555,81 @@ function ribbonPath(p) {
   return curvePath(p, -1) + ` L ${p.xEnd},${lower(p.xEnd)} ` + breaks.slice(1).map((x, i) => cubicSection(breaks[i], x, lower)).join(" ") + " Z";
 }
 
+// src/drag-pan.ts
+function installDragPan(scroll, onStart) {
+  const doc = scroll.ownerDocument, win = doc.defaultView;
+  let drag, suppressClick = false;
+  const finish = () => {
+    if (!drag) return;
+    const { id: id2, moved } = drag;
+    drag = void 0;
+    suppressClick = suppressClick || moved;
+    scroll.classList.remove("is-panning");
+    doc.removeEventListener("pointermove", move);
+    doc.removeEventListener("pointerup", up);
+    doc.removeEventListener("pointercancel", up);
+    win == null ? void 0 : win.removeEventListener("blur", finish);
+    if (scroll.hasPointerCapture(id2)) scroll.releasePointerCapture(id2);
+  };
+  const move = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    if (!(event.buttons & 1)) {
+      finish();
+      return;
+    }
+    const dx = event.clientX - drag.x;
+    if (!drag.moved) {
+      if (Math.abs(dx) < 5) return;
+      drag.moved = true;
+      onStart();
+      scroll.classList.add("is-panning");
+      scroll.setPointerCapture(drag.id);
+    }
+    event.preventDefault();
+    scroll.scrollLeft = drag.left - dx;
+  };
+  const up = (event) => {
+    if ((drag == null ? void 0 : drag.id) === event.pointerId) finish();
+  };
+  const down = (event) => {
+    if (event.button !== 0 || !event.isPrimary || event.pointerType === "touch") return;
+    if (event.target instanceof Element && event.target.closest('button,input,select,textarea,a,[contenteditable="true"]')) return;
+    const rect = scroll.getBoundingClientRect(), x = event.clientX - rect.left - scroll.clientLeft, y = event.clientY - rect.top - scroll.clientTop;
+    if (x < 0 || y < 0 || x >= scroll.clientWidth || y >= scroll.clientHeight) return;
+    finish();
+    suppressClick = false;
+    drag = { id: event.pointerId, x: event.clientX, left: scroll.scrollLeft, moved: false };
+    doc.addEventListener("pointermove", move, { passive: false });
+    doc.addEventListener("pointerup", up);
+    doc.addEventListener("pointercancel", up);
+    win == null ? void 0 : win.addEventListener("blur", finish);
+  };
+  const click = (event) => {
+    if (suppressClick && event.detail > 0) {
+      suppressClick = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  };
+  const lost = (event) => {
+    if ((drag == null ? void 0 : drag.id) === event.pointerId) finish();
+  };
+  const nativeDrag = (event) => {
+    if (drag) event.preventDefault();
+  };
+  scroll.addEventListener("pointerdown", down);
+  scroll.addEventListener("click", click, true);
+  scroll.addEventListener("lostpointercapture", lost);
+  scroll.addEventListener("dragstart", nativeDrag);
+  return () => {
+    finish();
+    scroll.removeEventListener("pointerdown", down);
+    scroll.removeEventListener("click", click, true);
+    scroll.removeEventListener("lostpointercapture", lost);
+    scroll.removeEventListener("dragstart", nativeDrag);
+  };
+}
+
 // src/composition-renderer.ts
 var NS = ["http:", "", "www.w3.org", "2000", "svg"].join("/");
 function element(tag, attrs = {}, text2) {
@@ -572,7 +647,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   };
   const scroll = root.createDiv({ cls: "vt-chart-scroll", attr: { tabindex: "0", "aria-label": "Timeline; scroll to explore. Select a shape for details." } });
   const hint = root.createDiv({ cls: "vt-chart-hint", attr: { "aria-live": "polite" } });
-  hint.textContent = "Wheel up/down over the timeline to zoom. Shift+wheel or horizontal scrolling pans. Select an item for details.";
+  hint.textContent = "Click and drag to pan left/right. Wheel up/down to zoom. Click an item for details.";
   const inspector = root.createEl("aside", { cls: "vt-inspector", attr: { "aria-label": "Timeline details" } });
   inspector.hidden = true;
   const diagnostics = root.createEl("details", { cls: "vt-diagnostics" });
@@ -763,6 +838,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     wheelFrame = 0;
     pendingWheel = 0;
   };
+  const disposePan = installDragPan(scroll, clearWheel);
   const zoomBy = (factor, pointer) => {
     const old = zoom, viewport = Math.max(260, scroll.clientWidth), basePlot = Math.max(720, viewport - gutter), oldPlot = basePlot * zoom;
     const focus = pointer != null ? pointer : viewport / 2;
@@ -779,6 +855,10 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     scroll.scrollLeft = 0;
   };
   const onWheel = (event) => {
+    if (scroll.classList.contains("is-panning")) {
+      event.preventDefault();
+      return;
+    }
     if (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY) || !Number.isFinite(event.deltaY) || !event.deltaY) return;
     const pointer = event.clientX - scroll.getBoundingClientRect().left - scroll.clientLeft;
     if (pointer < gutter || pointer > scroll.clientWidth) return;
@@ -830,6 +910,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   draw();
   return { destroy() {
     dead = true;
+    disposePan();
     clearWheel();
     scroll.removeEventListener("wheel", onWheel);
     observer.disconnect();

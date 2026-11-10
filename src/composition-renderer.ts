@@ -3,6 +3,7 @@ import type {Composition,CompositionSettings} from './composition';
 import {matches} from './composition';
 import {layoutRow,placeLabels,centerAt,halfAt,ribbonPath,curvePath,PlacedItem} from './layout';
 import {formatTime,timeTicks,historicalDate} from './dates';
+import {installDragPan} from './drag-pan';
 const NS=['http:','','www.w3.org','2000','svg'].join('/');
 function element(tag:string,attrs:Record<string,string|number>={},text?:string):SVGElement {
   const el=document.createElementNS(NS,tag) as SVGElement;for(const [k,v]of Object.entries(attrs))el.setAttribute(k,String(v));if(text)el.textContent=text;return el;
@@ -13,7 +14,7 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
   const button=(host:HTMLElement,text:string,fn:()=>void)=>{const b=host.createEl('button',{text});b.onclick=fn;return b;};
   const scroll=root.createDiv({cls:'vt-chart-scroll',attr:{tabindex:'0','aria-label':'Timeline; scroll to explore. Select a shape for details.'}});
   const hint=root.createDiv({cls:'vt-chart-hint',attr:{'aria-live':'polite'}});
-  hint.textContent='Wheel up/down over the timeline to zoom. Shift+wheel or horizontal scrolling pans. Select an item for details.';
+  hint.textContent='Click and drag to pan left/right. Wheel up/down to zoom. Click an item for details.';
   const inspector=root.createEl('aside',{cls:'vt-inspector',attr:{'aria-label':'Timeline details'}});inspector.hidden=true;
   const diagnostics=root.createEl('details',{cls:'vt-diagnostics'});
   let zoom=initialZoom,visible=new Set(records.map(r=>r.id)),selected:PlacedItem|undefined,returnFocus:Element|null=null,dead=false,lastWidth=0;
@@ -118,6 +119,7 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
   };
   let wheelFrame=0,pendingWheel=0,wheelPointer=0;
   const clearWheel=()=>{if(wheelFrame)cancelAnimationFrame(wheelFrame);wheelFrame=0;pendingWheel=0;};
+  const disposePan=installDragPan(scroll,clearWheel);
   const zoomBy=(factor:number,pointer?:number)=>{
     const old=zoom,viewport=Math.max(260,scroll.clientWidth),basePlot=Math.max(720,viewport-gutter),oldPlot=basePlot*zoom;
     const focus=pointer??viewport/2;
@@ -127,6 +129,7 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
   };
   const fit=()=>{clearWheel();zoom=1;draw();scroll.scrollLeft=0;};
   const onWheel=(event:WheelEvent)=>{
+    if(scroll.classList.contains('is-panning')){event.preventDefault();return;}
     if(event.shiftKey||Math.abs(event.deltaX)>Math.abs(event.deltaY)||!Number.isFinite(event.deltaY)||!event.deltaY)return;
     const pointer=event.clientX-scroll.getBoundingClientRect().left-scroll.clientLeft;
     // Keep normal scrolling over the pinned lane names and outside the chart.
@@ -148,5 +151,5 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
   };
   const observer=new ResizeObserver(()=>{if(Math.abs(scroll.clientWidth-lastWidth)>1)draw();});observer.observe(scroll);
   draw();
-  return {destroy(){dead=true;clearWheel();scroll.removeEventListener('wheel',onWheel);observer.disconnect();root.removeEventListener('keydown',onKey);root.remove();},setVisible(ids){visible=ids;draw();},zoomBy,fit};
+  return {destroy(){dead=true;disposePan();clearWheel();scroll.removeEventListener('wheel',onWheel);observer.disconnect();root.removeEventListener('keydown',onKey);root.remove();},setVisible(ids){visible=ids;draw();},zoomBy,fit};
 }

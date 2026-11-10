@@ -52,6 +52,22 @@ await page.evaluate(id=>chart.setVisible(new Set([id])),records[0].id);assert.eq
 await page.evaluate(rs=>chart.setVisible(new Set(rs.map(r=>r.id))),records);
 assert.deepEqual(await page.locator('[data-records]').evaluateAll(es=>Object.fromEntries(es.map(e=>[e.getAttribute('data-key'),[e.getAttribute('data-lane'),e.getAttribute('data-track')]]))),laneBefore);
 await page.getByRole('button',{name:'Zoom in',exact:true}).click();assert.deepEqual(await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height)),heights);
+const panBox=await page.locator('.vt-chart-scroll').boundingBox(),panX=panBox.x+450,panY=panBox.y+60;
+const panStart=await page.locator('.vt-chart-scroll').evaluate(e=>e.scrollLeft);
+await page.mouse.move(panX,panY);await page.mouse.down();await page.mouse.move(panX-100,panY,{steps:5});
+assert.ok(await page.locator('.vt-chart-scroll').evaluate(e=>e.classList.contains('is-panning')));
+await page.mouse.up();
+assert.ok(Math.abs((await page.locator('.vt-chart-scroll').evaluate(e=>e.scrollLeft))-panStart-100)<=1,'Dragging left pans toward later dates');
+assert.ok(await page.locator('.vt-inspector').isHidden(),'Panning does not open item details');
+await page.mouse.move(panX-100,panY);await page.mouse.down();await page.mouse.move(panX,panY,{steps:5});await page.mouse.up();
+assert.ok(Math.abs((await page.locator('.vt-chart-scroll').evaluate(e=>e.scrollLeft))-panStart)<=1,'Dragging right pans back');
+assert.ok(!await page.locator('.vt-chart-scroll').evaluate(e=>e.classList.contains('is-panning')));
+// Starting a drag on a name must not activate it on release; an ordinary click still works.
+await page.locator('.vt-name-button').first().scrollIntoViewIfNeeded();
+const nameBox=await page.locator('.vt-name-button').first().boundingBox(),nameX=nameBox.x+nameBox.width/2,nameY=nameBox.y+nameBox.height/2;
+await page.mouse.move(nameX,nameY);await page.mouse.down();await page.mouse.move(nameX+30,nameY,{steps:4});await page.mouse.up();
+assert.ok(await page.locator('.vt-inspector').isHidden(),'Dragging an item name must suppress its click');
+await page.locator('.vt-name-button').first().click();assert.ok(await page.locator('.vt-inspector').isVisible());await page.getByRole('button',{name:'Close',exact:true}).click();
 await page.locator('.vt-composed-record').first().focus();const before=await page.locator('.vt-chart-scroll').evaluate(e=>[e.scrollLeft,e.scrollTop]);await page.keyboard.press('Enter');
 assert.ok(await page.locator('.vt-inspector').isVisible());assert.equal(await page.evaluate(()=>opened.length),0);assert.deepEqual(await page.locator('.vt-chart-scroll').evaluate(e=>[e.scrollLeft,e.scrollTop]),before);
 await page.getByRole('button',{name:'Open note',exact:true}).click();assert.equal(await page.evaluate(()=>opened.length),1);await page.keyboard.press('Escape');

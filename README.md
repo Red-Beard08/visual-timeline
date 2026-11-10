@@ -12,6 +12,8 @@ Kingdoms can be drawn as filled SVG ribbons, with explicit successors branching 
 
 ## Relationship-aware layout (1.4)
 
+Version 1.4.5 adds left-button click-and-drag panning across the chart, including item shapes and names. A five-pixel horizontal movement threshold distinguishes panning from a normal detail-selection click. The grab cursor changes while dragging; pointer capture continues the drag outside the chart. Native touch scrolling, the scrollbar, wheel zoom, and keyboard selection remain available. Zoom in first when the entire timeline already fits the available width.
+
 Version 1.4.4 fixes false overlap tracks at succession boundaries. Records with identical start/end coordinates render as instant markers and do not reserve duration tracks. A same-year marker therefore no longer displaces the following reign for its full duration. Genuine overlapping durations still use separate tracks. No dates or historical notes are changed.
 
 Version 1.4.3 adds mouse-wheel zoom over the timeline plot (up = in, down = out), anchored to the date under the pointer. Horizontal wheel/trackpad gestures and Shift+wheel are left to native scrolling. Scrolling over lane names, controls, or the detail inspector is not captured. Wheel input is batched once per animation frame, normalizes pixel/line/page deltas, and stays within the Fit-to-32× zoom range. Fit and the existing zoom buttons remain available.
