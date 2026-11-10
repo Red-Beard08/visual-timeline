@@ -28,6 +28,7 @@ export function centerAt(curve:Curve,x:number):number {
   return curve.origin+(curve.target-curve.origin)*t*t*(3-2*t)+(curve.offset||0)*((curve.initialScale??1)+(1-(curve.initialScale??1))*t);
 }
 const chronological=(a:PlacedItem,b:PlacedItem)=>a.start-b.start||a.end-b.end||a.key.localeCompare(b.key);
+const STREAM_HALF=28,BAR_HALF=32,OVERLAP_HALF=5;
 export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:number;max:number},width:number,styles:Record<string,DisplayStyle>):RowLayout {
   const items:PlacedItem[]=[],diagnostics:Diagnostic[]=[],lanes:Lane[]=[];
   const x=(n:number)=>24+(n-bounds.min)/Math.max(1/366,bounds.max-bounds.min)*(width-48);
@@ -36,7 +37,7 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
     const start=historicalDate(record.date.start),end=historicalDate(record.date.end||record.date.start);
     if(!Number.isFinite(start)||!Number.isFinite(end)||end<start){diagnostics.push({record,message:'Invalid or reversed date range'});continue;}
     const style=styleFor(record,layer,styles),isAnchor=!layer.attachment&&(style==='stream'||anchorLayers.has(layer.id));
-    items.push({key:`${layer.id}/${record.id}`,record,layer,style,start,end,x:x(start),xEnd:x(end),laneId:'',subtrack:0,y:0,curve:{start:0,settle:0,origin:0,target:0},isAnchor,half:isAnchor?28:5,initialHalf:28,terminal:true,clustered:false});
+    items.push({key:`${layer.id}/${record.id}`,record,layer,style,start,end,x:x(start),xEnd:x(end),laneId:'',subtrack:0,y:0,curve:{start:0,settle:0,origin:0,target:0},isAnchor,half:isAnchor?STREAM_HALF:style==='box'?BAR_HALF:OVERLAP_HALF,initialHalf:STREAM_HALF,terminal:true,clustered:false});
   }
   items.sort(chronological);
   const anchors=items.filter(i=>i.isAnchor),parents=new Map<PlacedItem,PlacedItem>(),candidates=new Map<PlacedItem,Set<PlacedItem>>();
@@ -59,8 +60,8 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
   ordered(anchors.filter(p=>!parents.has(p))).forEach(assign);
   for(const a of anchors){
     const parent=parents.get(a),siblings=parent?children(parent):[],index=siblings.indexOf(a);
-    a.laneId=a.key;a.initialHalf=parent?28/siblings.length:28;a.terminal=children(a).length===0;
-    const origin=parent?parent.y-28+a.initialHalf+index*2*a.initialHalf:a.y;
+    a.laneId=a.key;a.initialHalf=parent?STREAM_HALF/siblings.length:STREAM_HALF;a.terminal=children(a).length===0;
+    const origin=parent?parent.y-STREAM_HALF+a.initialHalf+index*2*a.initialHalf:a.y;
     a.curve={start:a.x,settle:a.x+Math.min(110,(a.xEnd-a.x)*.45),origin,target:a.y,initialScale:a.initialHalf/a.half};
     lanes.push({id:a.key,title:a.record.title,y:a.y});
   }
@@ -127,6 +128,9 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
     if(track<0)track=tracks.length;
     if(!instant){tracks[track]=p.end;ends.set(key,tracks);}
     p.subtrack=track;p.clustered=track>=maxTracks;
+    // Primary bars stand slightly proud of streams; co-regencies stay compact
+    // inside them rather than hiding earlier reigns behind full-height slabs.
+    if(p.style==='box'&&track>0)p.half=OVERLAP_HALF;
     const visibleTrack=Math.min(track,maxTracks-1);
     const spacing=Math.min(10,20/Math.max(1,Math.ceil((maxTracks-1)/2)));
     const offset=p.style==='dot'?0:visibleTrack===0?0:(visibleTrack%2?-1:1)*Math.ceil(visibleTrack/2)*spacing;

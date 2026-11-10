@@ -89,6 +89,7 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
         if(cluster){g.appendChild(element('circle',{cx:x,cy:y,r:10,fill:p.layer.color,class:'vt-cluster-shape'}));g.appendChild(element('text',{x,y:y+4,fill:contrastText(p.layer.color),'text-anchor':'middle',class:'vt-cluster-text'},String(items.length)));}
         return g;
       };
+      const integratedGroups:SVGElement[]=[];
       for(const p of [...shown].filter(p=>!p.clustered).sort((a,b)=>z(a)-z(b))){
         const x=p.x,y=centerAt(p.curve,x),g=shapeGroup([p],x,y);
         const attachedColors=[...new Set(layout.items.filter(i=>i.anchorKey===p.key&&['box','stream','line'].includes(i.style)).map(i=>i.layer.color))];
@@ -99,10 +100,10 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
             const id=`vt-integrated-band-${++nextClipId}`;
             const clip=element('clipPath',{id,clipPathUnits:'userSpaceOnUse'});
             clip.appendChild(element('rect',{x:segment.from,y:0,width:segment.to-segment.from,height:layout.height}));svg.appendChild(clip);
-            g.appendChild(element('path',{d:segment.path,fill:p.layer.color,'fill-opacity':p.layer.opacity*(segment.kind==='overlay'?.28:.18),stroke:p.layer.color,'stroke-opacity':.65,'stroke-width':1,'stroke-dasharray':segment.kind==='continuation'?'5 4':'none','clip-path':`url(#${id})`,class:`vt-integrated-band vt-integrated-${segment.kind}`,'data-anchor':segment.anchor.record.id}));
+            g.appendChild(element('path',{d:segment.path,fill:p.layer.color,'fill-opacity':p.layer.opacity*(segment.kind==='overlay'?.28:.18),stroke:p.layer.color,'stroke-opacity':.65,'stroke-width':1,'stroke-dasharray':segment.kind==='continuation'?'5 4':'none','clip-path':`url(#${id})`,'pointer-events':segment.kind==='overlay'?'none':'visiblePainted',class:`vt-integrated-band vt-integrated-${segment.kind}`,'data-anchor':segment.anchor.record.id}));
           }
         }else if(p.style==='stream'||p.style==='box'){
-          if(p.xEnd===p.x)g.appendChild(element('line',{x1:x,x2:x,y1:y-6,y2:y+6,stroke:p.layer.color,'stroke-width':2}));
+          if(p.xEnd===p.x){const half=halfAt(p,x);g.appendChild(element('line',{x1:x,x2:x,y1:y-half,y2:y+half,stroke:p.layer.color,'stroke-width':2}));}
           else g.appendChild(element('path',{...attrs,d:ribbonPath(p),class:p.isAnchor?'vt-anchor-shape':'vt-duration-shape'}));
         }else if(p.style==='dot')g.appendChild(element('circle',{...attrs,cx:x,cy:y,r:5}));
         else if(p.style==='line')g.appendChild(element('path',{d:curvePath(p),stroke:p.layer.color,'stroke-width':2,fill:'none',opacity:p.layer.opacity}));
@@ -115,17 +116,27 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
           g.appendChild(element('line',{...cap,class:'vt-item-boundary'}));
         }
         if(selected?.key===p.key)g.classList.add('is-selected');svg.appendChild(g);
+        if(p.integratedAnchors?.length)integratedGroups.push(g);
       }
+      // Context paint stays visible on thick bars but passes pointer input through
+      // to the reign below it. Dashed context-only tails remain selectable.
+      for(const g of integratedGroups)svg.appendChild(g);
       for(const cluster of layout.clusters){const members=cluster.items.filter(p=>visible.has(p.record.id));if(members.length)svg.appendChild(shapeGroup(members,cluster.x,cluster.y,true));}
       const callouts=element('g',{class:'vt-callouts'});svg.appendChild(callouts);
       for(const box of labelBoxes){
         const p=shown.find(i=>i.key===box.key)!;
-        const endY=box.y>box.sourceY?box.y-3:box.y+18,targetX=box.x+Math.min(box.width/2,8),bendY=endY+(box.y>box.sourceY?-7:7);
-        if(box.leader)callouts.appendChild(element('path',{d:`M ${box.sourceX} ${box.sourceY} V ${bendY} H ${targetX} V ${endY}`,class:'vt-label-leader'}));
+        const below=box.y>box.sourceY,half=p.clustered?10:halfAt(p,box.sourceX),edgeY=box.sourceY+(below?half:-half);
+        const endY=below?box.y-3:box.y+18,targetX=box.x+Math.min(box.width/2,8),bendY=below?Math.max(edgeY+4,endY-7):Math.min(edgeY-4,endY+7);
+        if(box.leader)callouts.appendChild(element('path',{d:`M ${box.sourceX} ${edgeY} V ${bendY} H ${targetX} V ${endY}`,class:'vt-label-leader'}));
         const label=element('g',{class:`vt-name-button vt-label-${box.kind}`,tabindex:0,role:'button','aria-label':p.record.title});
         label.appendChild(element('title',{},p.record.title));
         label.appendChild(element('rect',{x:box.x-3,y:box.y-3,width:box.width+6,height:box.height+6,rx:2,class:'vt-label-backdrop'}));
-        label.appendChild(element('text',{x:box.x,y:box.y+12,class:'vt-adaptive-label','data-for':p.key},box.text));
+        const text=element('text',{x:box.x,y:box.y+12,class:'vt-adaptive-label','data-for':p.key},box.text);
+        if(p.isAnchor){
+          const cover=shown.find(i=>i.anchorKey===p.key&&i.style==='box'&&i.subtrack===0&&!i.clustered&&i.layer.opacity>=.9&&i.x<=box.sourceX&&i.xEnd>=box.sourceX);
+          if(cover)text.style.fill=contrastText(cover.layer.color);
+        }
+        label.appendChild(text);
         label.addEventListener('click',()=>details([p]));label.addEventListener('keydown',e=>{if(['Enter',' '].includes((e as KeyboardEvent).key)){e.preventDefault();details([p]);}});callouts.appendChild(label);
       }
     }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 async function module(path){const out=await build({entryPoints:[path],bundle:true,write:false,format:'esm'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));}
 const {defaults,normalizeComposition,newLayer,newRow,reorder,matches,styleFor,contrastText}=await module('src/composition.ts');
-const {layoutRow,resolveReference,placeLabels,centerAt,curvePath,ribbonPath,integratedBandSegments}=await module('src/layout.ts');
+const {layoutRow,resolveReference,placeLabels,centerAt,halfAt,curvePath,ribbonPath,integratedBandSegments}=await module('src/layout.ts');
 const {historicalDate,formatTime,timeTicks}=await module('src/dates.ts');
 const {relations}=await module('src/utils.ts');
 assert.equal(historicalDate('930 BC'),-929);assert.equal(historicalDate('1 BC'),0);assert.equal(historicalDate('AD 1'),1);
@@ -74,6 +74,13 @@ for(const [label,date,end]of [['Northern succession','885 BC','874 BC'],['Judah 
 const overlapA=record('Overlap A','person','950 BC','920 BC',{related_to:['A']}),overlapB=record('Overlap B','person','940 BC','930 BC',{related_to:['A']});
 const overlapping=layoutRow(row,[a,overlapA,overlapB],bounds,1000,{});
 assert.notEqual(get(overlapping,overlapA.id).subtrack,get(overlapping,overlapB.id).subtrack,'True duration overlap must retain separate tracks');
+assert.equal(get(overlapping,overlapA.id).half,32,'Primary duration bars are 64px high');
+assert.equal(get(overlapping,overlapB.id).half,5,'Co-regencies retain readable compact internal tracks');
+assert.equal(get(layout,'A').half,28,'Background streams remain 56px high');
+for(const x of [cp.x,(cp.x+Math.min(cp.xEnd,cp.curve.settle))/2,Math.min(cp.xEnd,cp.curve.settle)]){
+  assert.ok(halfAt(cp,x)>halfAt(ap,x),'A curved primary bar stays slightly larger than its stream');
+  assert.equal(centerAt(cp.curve,x),centerAt(ap.curve,x),'Bar thickness cannot move its centerline');
+}
 const ending=record('Ending','person','950 BC','940 BC',{related_to:['A']}),next=record('Next','person','940 BC','930 BC',{related_to:['A']});
 const adjacent=layoutRow(row,[a,ending,next],bounds,1000,{});
 assert.equal(get(adjacent,next.id).subtrack,0,'Touching duration boundaries are not overlaps');

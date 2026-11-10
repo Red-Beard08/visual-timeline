@@ -30,8 +30,15 @@ const assert=require('node:assert/strict');
    assert.ok(await page.locator('.vt-context-band').evaluate(e=>Number(e.getAttribute('height'))<=56&&Number(e.getAttribute('opacity'))<=.2));
   }
   assert.equal(await page.locator('.vt-chart-tools').count(),1);
+  const reign=page.locator('.vt-composed-record[aria-label="Manasseh"] .vt-duration-shape');
+  assert.equal(await reign.evaluate(e=>e.getBBox().height),64,'Flat primary reigns should be 64px high over 56px streams');
+  await reign.click();
+  assert.equal(await page.locator('.vt-inspector h3').textContent(),'Manasseh','Context tint must not intercept reign selection');
+  await page.getByRole('button',{name:'Close',exact:true}).click();
   await page.locator('.vt-name-button[aria-label="Asa"]').click();
   assert.ok(await page.locator('.vt-inspector').isVisible());
+  await page.locator('.visual-timeline-dashboard').evaluate(e=>e.scrollTop=0);
+  await page.evaluate(()=>window.scrollTo(0,0));
   mkdirSync('.impeccable/review',{recursive:true});
   await page.screenshot({path:'.impeccable/review/hero-repro.png'});
   await page.setViewportSize({width:1440,height:900});await page.evaluate(()=>new Promise(r=>requestAnimationFrame(r)));
