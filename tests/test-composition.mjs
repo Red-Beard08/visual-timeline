@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 async function module(path){const out=await build({entryPoints:[path],bundle:true,write:false,format:'esm'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));}
-const {defaults,normalizeComposition,newLayer,newRow,reorder,matches,styleFor}=await module('src/composition.ts');
+const {defaults,normalizeComposition,newLayer,newRow,reorder,matches,styleFor,contrastText}=await module('src/composition.ts');
 const {layoutRow,resolveReference,placeLabels,centerAt,curvePath}=await module('src/layout.ts');
-const {historicalDate,formatTime}=await module('src/dates.ts');
+const {historicalDate,formatTime,timeTicks}=await module('src/dates.ts');
 const {relations}=await module('src/utils.ts');
 assert.equal(historicalDate('930 BC'),-929);assert.equal(historicalDate('1 BC'),0);assert.equal(historicalDate('AD 1'),1);
 assert.equal(historicalDate('0001-01-01'),1);assert.ok(historicalDate('2024-02-29')<historicalDate('2024-03-01'));
 assert.ok(Number.isNaN(historicalDate('2023-02-29')));assert.ok(Number.isNaN(historicalDate('garbage')));assert.ok(Number.isNaN(historicalDate('0 AD')));
 assert.equal(formatTime(0),'1 BC');assert.equal(formatTime(1),'AD 1');assert.equal(historicalDate('circa 930 BC'),-929);
+assert.deepEqual(timeTicks(-1049,-538,1200).map(t=>formatTime(t)),['1000 BC','900 BC','800 BC','700 BC','600 BC']);
+assert.ok(timeTicks(-4,4,1000).every(t=>!formatTime(t).includes('AD 0')));
 assert.deepEqual(relations({relations:{related_to:['[[K]]']},related_to:['[[L]]']}).related_to,['K','L']);
+assert.equal(contrastText('#72b7b1'),'#000000');assert.equal(contrastText('#b998c9'),'#000000');assert.equal(contrastText('#111111'),'#ffffff');
 const config=defaults();assert.equal(config.version,2);assert.deepEqual(JSON.parse(JSON.stringify(normalizeComposition(config))),JSON.parse(JSON.stringify(config)));
 const v1=JSON.parse(JSON.stringify(config));v1.version=1;delete v1.views[0].rows[0].anchorOrder;delete v1.views[0].rows[0].maxSubtracks;
 const gridConfig=JSON.parse(JSON.stringify(config));gridConfig.views[0].yearGrid=true;
@@ -74,3 +77,16 @@ assert.notEqual(get(overlapping,overlapA.id).subtrack,get(overlapping,overlapB.i
 const ending=record('Ending','person','950 BC','940 BC',{related_to:['A']}),next=record('Next','person','940 BC','930 BC',{related_to:['A']});
 const adjacent=layoutRow(row,[a,ending,next],bounds,1000,{});
 assert.equal(get(adjacent,next.id).subtrack,0,'Touching duration boundaries are not overlaps');
+const extra=record('Extra references','event','900 BC','900 BC',{related_to:['B','Some era outside the anchor layer']});
+const events=newLayer('Events','event');events.style='dot';events.attachment={anchorLayer:'anchors',relationship:'related_to',overrides:{}};
+assert.equal(get(layoutRow({...row,layers:[anchors,rulers,events]},[...records,extra],bounds,1000,{}),extra.id).anchor.id,'B','An unrelated era reference cannot invalidate one kingdom anchor');
+const era=record('Era','era','900 BC','600 BC',{related_to:['B','C']});const band=newLayer('Context','era');band.style='band';band.attachment={anchorLayer:'anchors',relationship:'related_to',overrides:{}};
+const withContext=layoutRow({...row,layers:[...row.layers,band]},[...records,era],bounds,1000,{});
+assert.equal(get(withContext,'Era').context,true);assert.equal(withContext.diagnostics.length,0,'Row context does not claim one kingdom anchor');
+assert.ok(get(withContext,'Era').y>Math.max(...withContext.items.filter(p=>p.isAnchor).map(p=>p.y)));
+band.bandPlacement='lane';const laneBand=layoutRow({...row,layers:[...row.layers,band]},[...records,era],bounds,1000,{});
+assert.ok(laneBand.diagnostics.some(d=>d.record.id==='Era'),'A lane band with two anchors remains explicitly ambiguous');
+const custom=defaults();custom.views[0].rows[0].layers[0].tintFromAttached=true;custom.views[0].rows[0].layers[0].bandPlacement='lane';
+assert.equal(normalizeComposition(custom).views[0].rows[0].layers[0].tintFromAttached,true);
+assert.equal(normalizeComposition(custom).views[0].rows[0].layers[0].bandPlacement,'lane');
+assert.ok(names.every(b=>b.kind&&Number.isFinite(b.sourceY)));

@@ -9,14 +9,21 @@ export interface TimelineLayer {
   types: string[]; categories: string[]; tags: string[];
   style: DisplayStyle | 'default'; plane: 'background' | 'foreground';
   opacity: number; color: string; labels: 'adaptive' | 'always' | 'selection' | 'hidden';
+  bandPlacement?: 'context' | 'lane'; tintFromAttached?: boolean;
 }
 export interface TimelineRow {anchorOrder?: string[]; maxSubtracks?: number;id: string; name: string; height: number; enabled: boolean; layers: TimelineLayer[];}
 export interface Composition {id: string; name: string; rows: TimelineRow[]; yearGrid?: boolean;}
 export interface CompositionSettings {version: 2; active: string; views: Composition[]; categoryStyles: Record<string,DisplayStyle>;}
 export const STYLES: DisplayStyle[] = ['stream','line','dot','box','band'];
+/** Readable count-marker text, independent of the current Obsidian surface color. */
+export function contrastText(color:string):string {
+  const channels=[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)/255).map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4);
+  const luminance=.2126*channels[0]+.7152*channels[1]+.0722*channels[2];
+  return luminance>.179?'#000000':'#ffffff';
+}
 export const uid = ():string => `view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
 export function newLayer(name = 'New layer', type = ''):TimelineLayer {
-  return {id:uid(),name,enabled:true,types:type?[`visual-timeline-${type}`]:[],categories:[],tags:[],style:'default',plane:'foreground',opacity:1,color:'#659fa0',labels:'adaptive'};
+  return {id:uid(),name,enabled:true,types:type?[`visual-timeline-${type}`]:[],categories:[],tags:[],style:'default',plane:'foreground',opacity:1,color:'#659fa0',labels:'adaptive',bandPlacement:'context',tintFromAttached:false};
 }
 export function newRow(name = 'New row', layers:TimelineLayer[] = []):TimelineRow {return {id:uid(),name,height:220,enabled:true,layers,anchorOrder:[],maxSubtracks:3};}
 export function defaults():CompositionSettings {
@@ -37,6 +44,11 @@ export function normalizeComposition(value:unknown):CompositionSettings {
   if(!Array.isArray(raw.views)||!raw.views.length)return defaults();
   const views=raw.views.filter(v=>v&&typeof v==='object').map(v=>({id:typeof v.id==='string'?v.id:uid(),name:String(v.name||'Untitled view'),...(v.yearGrid!==undefined?{yearGrid:v.yearGrid===true}:{}),rows:(Array.isArray(v.rows)?v.rows:[]).filter(Boolean).map(r=>({id:r.id||uid(),name:String(r.name||'Untitled row'),height:finite(r.height,220,120,1200),anchorOrder:strings(r.anchorOrder),maxSubtracks:Math.round(finite(r.maxSubtracks,3,1,6)),enabled:r.enabled!==false,layers:(Array.isArray(r.layers)?r.layers:[]).filter(Boolean).map(l=>({...newLayer(),id:l.id||uid(),name:String(l.name||'Untitled layer'),enabled:l.enabled!==false,types:strings(l.types),categories:strings(l.categories),tags:strings(l.tags),style:STYLES.includes(l.style as DisplayStyle)?l.style:'default',plane:l.plane==='background'?'background':'foreground',opacity:finite(l.opacity,1,.1,1),color:/^#[\da-f]{6}$/i.test(l.color)?l.color:'#659fa0',labels:['adaptive','always','selection','hidden'].includes(l.labels)?l.labels:'adaptive',attachment:normalizeAttachment(l.attachment)} as TimelineLayer))}))}));
   if(!views.length)return defaults();
+  for(const view of views)for(const row of view.rows)for(const layer of row.layers){
+    const stored=raw.views.find(v=>v.id===view.id)?.rows?.find(r=>r.id===row.id)?.layers?.find(l=>l.id===layer.id);
+    layer.bandPlacement=stored?.bandPlacement==='lane'?'lane':'context';
+    layer.tintFromAttached=stored?.tintFromAttached===true;
+  }
   const categoryStyles:Record<string,DisplayStyle>={};
   for(const [key,style] of Object.entries(raw.categoryStyles||{}))if(STYLES.includes(style))categoryStyles[key]=style;
   return {version:2,active:views.some(v=>v.id===raw.active)?raw.active!:views[0].id,views,categoryStyles};

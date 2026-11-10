@@ -1,6 +1,6 @@
 // Real-data visual QA. Inputs stay local and are never bundled into the plugin.
 const {chromium}=require('playwright');const {build}=require('esbuild');
-const {readFileSync}=require('node:fs');const path=require('node:path');const assert=require('node:assert/strict');
+const {readFileSync,mkdirSync}=require('node:fs');const path=require('node:path');const assert=require('node:assert/strict');
 (async()=>{
 const records=JSON.parse(readFileSync(process.env.UI_RECORDS,'utf8')),config=JSON.parse(readFileSync(process.env.UI_COMPOSITION,'utf8'));
 const bundle=await build({stdin:{contents:`import {renderComposition} from './src/composition-renderer';window.start=(records,config)=>{window.opened=[];window.chart=renderComposition(document.querySelector('#chart'),config.views[0],config,records,{min:0,max:1},p=>window.opened.push(p));};`,resolveDir:process.cwd(),loader:'ts'},bundle:true,write:false,format:'iife'});
@@ -16,7 +16,7 @@ assert.equal(await page.locator('.vt-adaptive-label').count(),expectedNames,'Eve
 const heights=await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height));
 const wheelState=()=>page.locator('.vt-chart-scroll').evaluate(e=>{
   const width=Number(e.querySelector('.vt-composition-svg').getAttribute('width')),pointer=e.clientWidth*.6;
-  return {width,top:e.scrollTop,date:(e.scrollLeft+pointer-160-24)/(width-48)};
+  return {width,top:e.scrollTop,date:(e.scrollLeft+pointer-Number(e.closest('.vt-chart').dataset.gutter)-24)/(width-48)};
 });
 const wheel=async(options={})=>{
   const prevented=await page.locator('.vt-chart-scroll').evaluate((e,o)=>{const ev=new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:e.getBoundingClientRect().left+e.clientLeft+e.clientWidth*.6,deltaY:-180,...o});e.dispatchEvent(ev);return ev.defaultPrevented;},options);

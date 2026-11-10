@@ -111,8 +111,11 @@ function timeTicks(min, max, width) {
   const power = 10 ** Math.floor(Math.log10(Math.max(raw, 1 / 366)));
   const step = [1, 2, 5, 10].map((n) => n * power).find((n) => n >= raw) || power * 10;
   const ticks = [];
-  for (let n = Math.ceil(min / step) * step; n <= max + step / 100 && ticks.length < 100; n += step) ticks.push(n);
-  return ticks;
+  if (step >= 1) {
+    for (let n = Math.max(step, Math.ceil((1 - Math.min(max, 0)) / step) * step); n <= 1 - min && ticks.length < 100; n += step) ticks.push(1 - n);
+    for (let n = Math.max(step, Math.ceil(Math.max(1, min) / step) * step); n <= max && ticks.length < 100; n += step) ticks.push(n);
+  } else for (let n = Math.ceil(min / step) * step; n <= max + step / 100 && ticks.length < 100; n += step) ticks.push(n);
+  return ticks.sort((a, b) => a - b);
 }
 
 // src/utils.ts
@@ -239,9 +242,14 @@ var import_obsidian3 = require("obsidian");
 
 // src/composition.ts
 var STYLES = ["stream", "line", "dot", "box", "band"];
+function contrastText(color) {
+  const channels = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255).map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  return luminance > 0.179 ? "#000000" : "#ffffff";
+}
 var uid = () => `view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 function newLayer(name = "New layer", type = "") {
-  return { id: uid(), name, enabled: true, types: type ? [`visual-timeline-${type}`] : [], categories: [], tags: [], style: "default", plane: "foreground", opacity: 1, color: "#659fa0", labels: "adaptive" };
+  return { id: uid(), name, enabled: true, types: type ? [`visual-timeline-${type}`] : [], categories: [], tags: [], style: "default", plane: "foreground", opacity: 1, color: "#659fa0", labels: "adaptive", bandPlacement: "context", tintFromAttached: false };
 }
 function newRow(name = "New row", layers = []) {
   return { id: uid(), name, height: 220, enabled: true, layers, anchorOrder: [], maxSubtracks: 3 };
@@ -263,11 +271,17 @@ function defaults() {
 var strings = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
 var finite = (v, fallback, min, max) => typeof v === "number" && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : fallback;
 function normalizeComposition(value) {
+  var _a, _b, _c, _d;
   if (!value || typeof value !== "object") return defaults();
   const raw = value;
   if (!Array.isArray(raw.views) || !raw.views.length) return defaults();
   const views = raw.views.filter((v) => v && typeof v === "object").map((v) => ({ id: typeof v.id === "string" ? v.id : uid(), name: String(v.name || "Untitled view"), ...v.yearGrid !== void 0 ? { yearGrid: v.yearGrid === true } : {}, rows: (Array.isArray(v.rows) ? v.rows : []).filter(Boolean).map((r) => ({ id: r.id || uid(), name: String(r.name || "Untitled row"), height: finite(r.height, 220, 120, 1200), anchorOrder: strings(r.anchorOrder), maxSubtracks: Math.round(finite(r.maxSubtracks, 3, 1, 6)), enabled: r.enabled !== false, layers: (Array.isArray(r.layers) ? r.layers : []).filter(Boolean).map((l) => ({ ...newLayer(), id: l.id || uid(), name: String(l.name || "Untitled layer"), enabled: l.enabled !== false, types: strings(l.types), categories: strings(l.categories), tags: strings(l.tags), style: STYLES.includes(l.style) ? l.style : "default", plane: l.plane === "background" ? "background" : "foreground", opacity: finite(l.opacity, 1, 0.1, 1), color: /^#[\da-f]{6}$/i.test(l.color) ? l.color : "#659fa0", labels: ["adaptive", "always", "selection", "hidden"].includes(l.labels) ? l.labels : "adaptive", attachment: normalizeAttachment(l.attachment) })) })) }));
   if (!views.length) return defaults();
+  for (const view of views) for (const row of view.rows) for (const layer of row.layers) {
+    const stored = (_d = (_c = (_b = (_a = raw.views.find((v) => v.id === view.id)) == null ? void 0 : _a.rows) == null ? void 0 : _b.find((r) => r.id === row.id)) == null ? void 0 : _c.layers) == null ? void 0 : _d.find((l) => l.id === layer.id);
+    layer.bandPlacement = (stored == null ? void 0 : stored.bandPlacement) === "lane" ? "lane" : "context";
+    layer.tintFromAttached = (stored == null ? void 0 : stored.tintFromAttached) === true;
+  }
   const categoryStyles = {};
   for (const [key, style] of Object.entries(raw.categoryStyles || {})) if (STYLES.includes(style)) categoryStyles[key] = style;
   return { version: 2, active: views.some((v) => v.id === raw.active) ? raw.active : views[0].id, views, categoryStyles };
@@ -372,11 +386,11 @@ function layoutRow(row, records, bounds, width, styles) {
     return rank(a) - rank(b) || chronological(a, b);
   });
   const children = (p) => ordered(anchors.filter((c) => parents.get(c) === p));
-  let nextY = 76;
+  let nextY = 134;
   const assign = (p) => {
     const cs = children(p);
     p.y = cs.length ? cs.reduce((s, c) => s + assign(c), 0) / cs.length : nextY;
-    if (!cs.length) nextY += 112;
+    if (!cs.length) nextY += 192;
     return p.y;
   };
   ordered(anchors.filter((p) => !parents.has(p))).forEach(assign);
@@ -394,7 +408,7 @@ function layoutRow(row, records, bounds, width, styles) {
     let lane = independent.get(key);
     if (!lane) {
       lane = { id: key, title, y: nextY };
-      nextY += 112;
+      nextY += 192;
       independent.set(key, lane);
       lanes.push(lane);
     }
@@ -402,6 +416,10 @@ function layoutRow(row, records, bounds, width, styles) {
   };
   const ordinary = items.filter((i) => !i.isAnchor);
   for (const p of [...ordinary].sort((a, b) => a.layer.id.localeCompare(b.layer.id) || chronological(a, b))) {
+    if (p.style === "band" && p.layer.bandPlacement !== "lane") {
+      p.context = true;
+      continue;
+    }
     const binding = p.layer.attachment;
     if (binding) {
       const peers = anchors.filter((a) => a.layer.id === binding.anchorLayer), rs = peers.map((a) => a.record);
@@ -409,7 +427,11 @@ function layoutRow(row, records, bounds, width, styles) {
       const refs = override ? [override] : p.record.relations[binding.relationship] || [];
       const found = refs.map((ref) => resolveReference(ref, rs));
       const unique = [...new Set(found.filter(Boolean))];
-      const anchor = unique.length === 1 && !found.includes(void 0) ? peers.find((a) => a.record === unique[0]) : void 0;
+      const ambiguous = refs.some((ref) => {
+        const v = refName(ref);
+        return !resolveReference(ref, rs) && rs.filter((r) => r.id === v || r.path.replace(/\.md$/, "") === v || r.file.basename === v || (r.aliases || []).includes(v)).length > 1;
+      });
+      const anchor = unique.length === 1 && !ambiguous ? peers.find((a) => a.record === unique[0]) : void 0;
       if (anchor) {
         p.anchor = anchor.record;
         p.anchorKey = anchor.key;
@@ -422,15 +444,20 @@ function layoutRow(row, records, bounds, width, styles) {
         p.y = lane.y;
         diagnostics.push({ record: p.record, message: peers.length ? "Missing or ambiguous anchor" : "Anchor layer is missing, disabled, or empty" });
       }
-    } else if (p.style === "band") {
-      p.laneId = "context";
-      p.y = 32;
     } else {
       const lane = getLane(`independent:${p.layer.id}`, p.layer.name);
       p.laneId = lane.id;
       p.y = lane.y;
     }
     if (!p.anchor) p.curve = { start: p.x, settle: p.x, origin: p.y, target: p.y };
+  }
+  const contexts = /* @__PURE__ */ new Map();
+  const contextTop = Math.max(152, nextY - 192 + 152);
+  for (const p of ordinary.filter((p2) => p2.context)) {
+    if (!contexts.has(p.layer.id)) contexts.set(p.layer.id, contextTop + contexts.size * 48);
+    p.laneId = `context:${p.layer.id}`;
+    p.y = contexts.get(p.layer.id);
+    p.curve = { start: p.x, settle: p.x, origin: p.y, target: p.y };
   }
   const maxTracks = row.maxSubtracks || 3, ends = /* @__PURE__ */ new Map();
   for (const p of ordinary.sort(chronological)) {
@@ -447,7 +474,8 @@ function layoutRow(row, records, bounds, width, styles) {
     p.subtrack = track;
     p.clustered = track >= maxTracks;
     const visibleTrack = Math.min(track, maxTracks - 1);
-    const offset = p.style === "dot" ? 42 : visibleTrack === 0 ? 0 : (visibleTrack % 2 ? -1 : 1) * Math.ceil(visibleTrack / 2) * 14;
+    const spacing = Math.min(10, 20 / Math.max(1, Math.ceil((maxTracks - 1) / 2)));
+    const offset = p.style === "dot" ? 0 : visibleTrack === 0 ? 0 : (visibleTrack % 2 ? -1 : 1) * Math.ceil(visibleTrack / 2) * spacing;
     p.curve = { ...p.curve, offset, initialScale: p.style === "dot" ? 1 : p.curve.initialScale };
     p.y += offset;
   }
@@ -478,7 +506,7 @@ function layoutRow(row, records, bounds, width, styles) {
     }
     flush();
   }
-  const height = Math.max(row.height, nextY === 76 ? 120 : nextY - 112 + 76);
+  const height = Math.max(row.height, nextY === 134 ? 160 : nextY - 192 + 138, contexts.size ? contextTop + (contexts.size - 1) * 48 + 32 : 0);
   return { items, lanes, clusters, height, diagnostics };
 }
 function placeLabels(items, width, measure, height = 300) {
@@ -494,31 +522,34 @@ function placeLabels(items, width, measure, height = 300) {
   const collision = (b) => boxes.some((a) => b.x < a.x + a.width + 6 && b.x + b.width + 6 > a.x && b.y < a.y + a.height + 3 && b.y + b.height + 3 > a.y);
   for (const p of [...items].sort((a, b) => Number(b.isAnchor) - Number(a.isAnchor) || chronological(a, b))) {
     if (!["adaptive", "always"].includes(p.layer.labels)) continue;
-    const sx = p.isAnchor ? Math.min(p.xEnd - 4, p.curve.settle + 8) : p.x + 2;
-    const sy = p.style === "band" ? 32 : centerAt(p.curve, sx);
-    const available = Math.max(34, p.xEnd - sx - 8);
-    const preferred = p.isAnchor ? Math.min(260, available) : Math.min(180, Math.max(50, available));
+    const sx = p.isAnchor ? Math.min(p.xEnd - 4, p.curve.settle + 10) : p.x + 2;
+    const sy = centerAt(p.curve, sx);
+    const available = Math.max(28, p.xEnd - sx - 8);
+    const preferred = p.isAnchor ? Math.min(300, available) : Math.min(170, Math.max(60, available));
     const anchor = anchors.find((a) => a.key === p.anchorKey);
-    const rail = anchor && minAnchor !== maxAnchor && anchor.y === minAnchor ? [anchor.y - 72, anchor.y - 54, anchor.y - 36] : anchor && minAnchor !== maxAnchor && anchor.y === maxAnchor ? [anchor.y + 34, anchor.y + 52, anchor.y + 70, anchor.y + 88] : p.isAnchor ? [sy, sy + 18, sy - 54, sy - 70] : [sy - 36, sy - 54, sy - 72, sy + 10, sy + 28, sy + 46];
+    const rail = p.context ? [p.y - 7] : anchor && minAnchor !== maxAnchor && anchor.y === minAnchor ? [anchor.y - 54, anchor.y - 76, anchor.y - 98, anchor.y - 120] : anchor && minAnchor !== maxAnchor && anchor.y === maxAnchor ? [anchor.y + 40, anchor.y + 62, anchor.y + 84, anchor.y + 106] : p.isAnchor ? [sy + 9] : [sy - 54, sy - 76, sy - 98, sy - 120];
+    const kind = p.isAnchor ? "anchor" : p.context ? "context" : "record";
     let placed = false;
-    for (const budget of [preferred, Math.min(preferred, 70), 34]) {
+    for (const budget of [preferred, Math.min(preferred, 100), Math.min(preferred, 68), 40, 34]) {
       const name = truncate(p.record.title, Math.min(budget, width - 12)), w = measure(name);
-      const x = Math.max(4, Math.min(sx, width - w - 4));
-      for (const y of rail) {
+      const starts = [sx];
+      if (!p.isAnchor && !p.context) for (let dx = 18; dx <= Math.min(100, Math.max(18, p.xEnd - sx)); dx += 18) starts.push(sx + dx);
+      search: for (const x0 of starts) for (const y of rail) {
+        const x = Math.max(4, Math.min(x0, width - w - 4));
         if (y < 4 || y + 15 > height - 4) continue;
-        const box = { key: p.key, x, y, width: w, height: 15, text: name, sourceX: sx, sourceY: sy, leader: !p.isAnchor && (Math.abs(y + 12 - sy) > 22 || Math.abs(x - sx) > 5) };
+        const box = { key: p.key, x, y, width: w, height: 15, text: name, sourceX: sx, sourceY: sy, leader: kind === "record", kind };
         if (collision(box)) continue;
         boxes.push(box);
         placed = true;
-        break;
+        break search;
       }
       if (placed) break;
     }
     if (!placed) {
       const text2 = truncate(p.record.title, 34), w = measure(text2);
-      outer: for (const y of rail.filter((y2) => y2 >= 4 && y2 + 15 <= height - 4)) for (const shift of [0, -16, 16, -32, 32, -48, 48, -64, 64]) {
+      outer: for (const y of rail.filter((y2) => y2 >= 4 && y2 + 15 <= height - 4)) for (const shift of [0, -18, 18, -36, 36, -54, 54, -72, 72, -90, 90]) {
         const x = Math.max(4, Math.min(sx + shift, width - w - 4));
-        const b = { key: p.key, x, y, width: w, height: 15, text: text2, sourceX: sx, sourceY: sy, leader: true };
+        const b = { key: p.key, x, y, width: w, height: 15, text: text2, sourceX: sx, sourceY: sy, leader: kind === "record", kind };
         if (!collision(b)) {
           boxes.push(b);
           break outer;
@@ -638,8 +669,8 @@ function element(tag, attrs = {}, text2) {
   if (text2) el.textContent = text2;
   return el;
 }
-function renderComposition(parent, view, settings, records, _bounds, open, initialZoom = 1, saveView) {
-  const root = parent.createDiv({ cls: "vt-chart" }), toolbar = root.createDiv({ cls: "vt-chart-tools" });
+function renderComposition(parent, view, settings, records, _bounds, open, initialZoom = 1, saveView, toolbarHost) {
+  const root = parent.createDiv({ cls: "vt-chart" }), toolbar = (toolbarHost || root).createDiv({ cls: "vt-chart-tools" });
   const button = (host, text2, fn) => {
     const b = host.createEl("button", { text: text2 });
     b.onclick = fn;
@@ -647,7 +678,8 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   };
   const scroll = root.createDiv({ cls: "vt-chart-scroll", attr: { tabindex: "0", "aria-label": "Timeline; scroll to explore. Select a shape for details." } });
   const hint = root.createDiv({ cls: "vt-chart-hint", attr: { "aria-live": "polite" } });
-  hint.textContent = "Click and drag to pan left/right. Wheel up/down to zoom. Click an item for details.";
+  const defaultHint = "Drag to pan \xB7 Scroll to zoom \xB7 Select for details";
+  hint.textContent = defaultHint;
   const inspector = root.createEl("aside", { cls: "vt-inspector", attr: { "aria-label": "Timeline details" } });
   inspector.hidden = true;
   const diagnostics = root.createEl("details", { cls: "vt-diagnostics" });
@@ -656,14 +688,17 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   const values = relevant.flatMap((r) => [historicalDate(r.date.start), historicalDate(r.date.end || r.date.start)]).filter(Number.isFinite);
   const min = values.length ? Math.min(...values) : 1, max = values.length ? Math.max(...values) : 2;
   const bounds = { min, max: max === min ? min + 1 : max };
-  const gutter = 160, measureCanvas = document.createElement("canvas"), ctx = measureCanvas.getContext("2d");
+  const gutter = view.rows.some((row) => row.layers.some((l) => l.enabled && !l.attachment && records.some((r) => matches(r, l) && !["stream", "band"].includes(styleFor(r, l, settings.categoryStyles))))) ? 160 : 24;
+  root.dataset.gutter = String(gutter);
+  const minPlot = 1e3, measureCanvas = document.createElement("canvas"), ctx = measureCanvas.getContext("2d");
   if (ctx) ctx.font = `13px ${getComputedStyle(parent).fontFamily}`;
   const measure = (t) => (ctx == null ? void 0 : ctx.measureText(t).width) || t.length * 8;
   const close = () => {
     inspector.hidden = true;
     selected = void 0;
+    hint.textContent = defaultHint;
     root.querySelectorAll(".is-selected").forEach((e) => e.classList.remove("is-selected"));
-    if (returnFocus instanceof HTMLElement || returnFocus instanceof SVGElement) returnFocus.focus();
+    if (returnFocus instanceof HTMLElement || returnFocus instanceof SVGElement) returnFocus.focus({ preventScroll: true });
   };
   const details = (items, focus = true) => {
     var _a;
@@ -672,7 +707,6 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     inspector.hidden = false;
     const header = inspector.createDiv({ cls: "vt-inspector-header" });
     const title = header.createEl("h3", { text: items.length > 1 ? `${items.length} items in this group` : items[0].record.title, attr: { tabindex: "-1" } });
-    button(header, "Close", close);
     if (items.length > 1) {
       for (const p of items) {
         const b = button(inspector, `${p.record.title} \xB7 ${p.record.date.display || p.record.date.start}`, () => details([p]));
@@ -681,17 +715,22 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     } else {
       const p = items[0], r = p.record;
       selected = p;
-      inspector.createEl("p", { text: `${r.date.circa ? "Circa \xB7 " : ""}${r.date.display || [r.date.start, r.date.end].filter(Boolean).join(" \u2014 ")}` });
-      if (r.categories.length) inspector.createEl("p", { cls: "vt-section-note", text: r.categories.join(" \xB7 ") });
-      if (p.anchor) inspector.createEl("p", { text: `Attached to: ${p.anchor.title}` });
+      const meta = header.createDiv({ cls: "vt-selection-meta" });
+      meta.createSpan({ text: `${r.date.circa ? "c. " : ""}${r.date.display || [r.date.start, r.date.end].filter(Boolean).join(" \u2014 ")}` });
+      if (p.anchor) meta.createSpan({ text: p.anchor.title });
+      const actions = header.createDiv({ cls: "vt-selection-actions" });
+      button(actions, "Open note", () => open(r.path));
+      const more = inspector.createEl("details", { cls: "vt-selection-more" });
+      more.createEl("summary", { text: "Categories and relationships" });
+      if (r.categories.length) more.createEl("p", { text: r.categories.join(" \xB7 ") });
       for (const [key, refs] of Object.entries(r.relations)) if (refs.length) {
-        inspector.createEl("h4", { text: key.replace(/_/g, " ") });
-        const ul = inspector.createEl("ul");
+        more.createEl("h4", { text: key.replace(/_/g, " ") });
+        const ul = more.createEl("ul");
         for (const ref of refs) ul.createEl("li", { text: ((_a = records.find((r2) => r2.id === ref || r2.path.replace(/\.md$/, "") === ref)) == null ? void 0 : _a.title) || ref });
       }
-      button(inspector, "Open note", () => open(r.path)).addClass("mod-cta");
       root.querySelectorAll(".vt-composed-record").forEach((e) => e.classList.toggle("is-selected", e.getAttribute("data-key") === p.key));
     }
+    button(header, "Close", close);
     if (focus) title.focus({ preventScroll: true });
   };
   const onKey = (e) => {
@@ -706,7 +745,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     const previousLeft = scroll.scrollLeft, previousTop = scroll.scrollTop;
     scroll.empty();
     diagnostics.empty();
-    const viewport = Math.max(260, scroll.clientWidth), plotWidth = Math.max(720, viewport - gutter) * zoom, total = plotWidth + gutter;
+    const viewport = Math.max(260, scroll.clientWidth), plotWidth = Math.max(minPlot, viewport - gutter) * zoom, total = plotWidth + gutter;
     lastWidth = viewport;
     const canvas = scroll.createDiv({ cls: "vt-chart-canvas" });
     canvas.style.width = `${total}px`;
@@ -714,7 +753,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     const tickX = (tick) => 24 + (tick - min) / (bounds.max - min) * (plotWidth - 48);
     const axis = canvas.createDiv({ cls: "vt-sticky-axis" });
     axis.style.width = `${total}px`;
-    axis.createDiv({ cls: "vt-axis-corner", text: "History" }).style.width = `${gutter}px`;
+    axis.createDiv({ cls: "vt-axis-corner", text: gutter > 24 ? "History" : "" }).style.width = `${gutter}px`;
     const ruler = element("svg", { width: plotWidth, height: 38, "aria-label": "Shared date scale" });
     for (const tick of ticks) {
       const x = tickX(tick);
@@ -734,14 +773,17 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       strip.style.height = `${layout.height}px`;
       const labels = strip.createDiv({ cls: "vt-sticky-lanes" });
       labels.style.width = `${gutter}px`;
-      for (const lane of layout.lanes) {
+      for (const lane of layout.lanes.filter((l) => !layout.items.some((p) => p.isAnchor && p.key === l.id))) {
         const l = labels.createDiv({ cls: "vt-lane-name", text: lane.title });
         l.style.top = `${lane.y - 14}px`;
       }
       const svg = element("svg", { width: plotWidth, height: layout.height, class: "vt-composition-svg", "aria-label": row.name });
       strip.appendChild(svg);
       const shown = layout.items.filter((p) => visible.has(p.record.id));
-      const labelBoxes = placeLabels(shown, plotWidth, measure, layout.height);
+      const labelBoxes = placeLabels(layout.items, plotWidth, measure, layout.height).filter((b) => shown.some((p) => p.key === b.key));
+      for (const y of [...new Set(layout.items.filter((p) => p.context).map((p) => p.y))]) {
+        svg.appendChild(element("line", { x1: 0, x2: plotWidth, y1: y - 22, y2: y - 22, class: "vt-context-rule" }));
+      }
       const z = (p) => (p.layer.plane === "background" ? 0 : 1e4) + row.layers.indexOf(p.layer);
       const shapeGroup = (items, x, y, cluster = false) => {
         const p = items[0], g = element("g", { class: "vt-composed-record", tabindex: 0, role: "button", "aria-label": cluster ? `${items.length} items; select to list` : p.record.title, "data-key": p.key, "data-records": items.map((i) => i.record.id).join("|"), "data-lane": p.laneId, "data-track": p.subtrack });
@@ -768,19 +810,22 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
           }
         });
         if (cluster) {
-          g.appendChild(element("circle", { cx: x, cy: y, r: 13, fill: p.layer.color, class: "vt-cluster-shape" }));
-          g.appendChild(element("text", { x, y: y + 4, "text-anchor": "middle", class: "vt-cluster-text" }, String(items.length)));
+          g.appendChild(element("circle", { cx: x, cy: y, r: 10, fill: p.layer.color, class: "vt-cluster-shape" }));
+          g.appendChild(element("text", { x, y: y + 4, fill: contrastText(p.layer.color), "text-anchor": "middle", class: "vt-cluster-text" }, String(items.length)));
         }
         return g;
       };
       for (const p of [...shown].filter((p2) => !p2.clustered).sort((a, b) => z(a) - z(b))) {
-        const x = p.x, y = centerAt(p.curve, x), g = shapeGroup([p], x, y), attrs = { fill: p.layer.color, opacity: p.layer.opacity };
+        const x = p.x, y = centerAt(p.curve, x), g = shapeGroup([p], x, y);
+        const attachedColors = [...new Set(layout.items.filter((i) => i.anchorKey === p.key && ["box", "stream", "line"].includes(i.style)).map((i) => i.layer.color))];
+        const color = p.isAnchor && p.layer.tintFromAttached && attachedColors.length === 1 ? attachedColors[0] : p.layer.color;
+        const attrs = { fill: color, opacity: p.layer.opacity };
         if (p.style === "stream" || p.style === "box") {
           if (p.xEnd === p.x) g.appendChild(element("line", { x1: x, x2: x, y1: y - 6, y2: y + 6, stroke: p.layer.color, "stroke-width": 2 }));
           else g.appendChild(element("path", { ...attrs, d: ribbonPath(p), class: p.isAnchor ? "vt-anchor-shape" : "vt-duration-shape" }));
         } else if (p.style === "dot") g.appendChild(element("circle", { ...attrs, cx: x, cy: y, r: 5 }));
         else if (p.style === "line") g.appendChild(element("path", { d: curvePath(p), stroke: p.layer.color, "stroke-width": 2, fill: "none", opacity: p.layer.opacity }));
-        else g.appendChild(element("rect", { ...attrs, x, y: p.anchor ? y - 28 : 16, width: Math.max(1, p.xEnd - x), height: p.anchor ? 56 : layout.height - 32 }));
+        else g.appendChild(element("rect", { ...attrs, opacity: p.context ? p.layer.opacity * 0.18 : p.layer.opacity, x, y: y - (p.context ? 16 : 28), width: Math.max(2, p.xEnd - x), height: p.context ? 32 : 56, rx: p.context ? 4 : 0, class: "vt-context-band" }));
         if (!p.isAnchor && p.style !== "band") g.appendChild(element("path", { d: curvePath(p), stroke: "transparent", "stroke-width": 20, fill: "none", class: "vt-hit-area" }));
         if (!p.isAnchor && ["box", "stream", "line"].includes(p.style)) for (const boundary of [.../* @__PURE__ */ new Set([p.x, p.xEnd])]) {
           const cy = centerAt(p.curve, boundary), half = halfAt(p, boundary) + 2;
@@ -799,10 +844,11 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       svg.appendChild(callouts);
       for (const box of labelBoxes) {
         const p = shown.find((i) => i.key === box.key);
-        if (box.leader) callouts.appendChild(element("path", { d: `M ${box.sourceX} ${box.sourceY} L ${box.x + Math.min(box.width / 2, 12)} ${box.y + 15}`, class: "vt-label-leader" }));
-        const label = element("g", { class: "vt-name-button", tabindex: 0, role: "button", "aria-label": p.record.title });
+        const endY = box.y > box.sourceY ? box.y - 3 : box.y + 18, targetX = box.x + Math.min(box.width / 2, 8), bendY = endY + (box.y > box.sourceY ? -7 : 7);
+        if (box.leader) callouts.appendChild(element("path", { d: `M ${box.sourceX} ${box.sourceY} V ${bendY} H ${targetX} V ${endY}`, class: "vt-label-leader" }));
+        const label = element("g", { class: `vt-name-button vt-label-${box.kind}`, tabindex: 0, role: "button", "aria-label": p.record.title });
         label.appendChild(element("title", {}, p.record.title));
-        label.appendChild(element("rect", { x: box.x - 2, y: box.y - 1, width: box.width + 4, height: box.height + 2, rx: 3, class: "vt-label-backdrop" }));
+        label.appendChild(element("rect", { x: box.x - 3, y: box.y - 3, width: box.width + 6, height: box.height + 6, rx: 2, class: "vt-label-backdrop" }));
         label.appendChild(element("text", { x: box.x, y: box.y + 12, class: "vt-adaptive-label", "data-for": p.key }, box.text));
         label.addEventListener("click", () => details([p]));
         label.addEventListener("keydown", (e) => {
@@ -816,7 +862,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     }
     diagnostics.hidden = !warningCount;
     if (warningCount) {
-      diagnostics.createEl("summary", { text: `${warningCount} records or relationships need attention` });
+      diagnostics.createEl("summary", { text: `Layer diagnostics \xB7 ${warningCount} items need review` });
       for (const d of warningList) button(diagnostics, `${d.record.title}: ${d.message}`, () => details([{ record: d.record, layer: { name: "Unassigned" }, key: `diagnostic/${d.record.id}` }]));
     }
     if (!view.rows.some((r) => r.enabled)) canvas.createEl("p", { text: "No visible rows. Add or enable a row in Configure timeline." });
@@ -840,7 +886,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   };
   const disposePan = installDragPan(scroll, clearWheel);
   const zoomBy = (factor, pointer) => {
-    const old = zoom, viewport = Math.max(260, scroll.clientWidth), basePlot = Math.max(720, viewport - gutter), oldPlot = basePlot * zoom;
+    const old = zoom, viewport = Math.max(260, scroll.clientWidth), basePlot = Math.max(minPlot, viewport - gutter), oldPlot = basePlot * zoom;
     const focus = pointer != null ? pointer : viewport / 2;
     const relative = pointer === void 0 && selected ? (selected.start - bounds.min) / (bounds.max - bounds.min) : Math.max(0, Math.min(1, (scroll.scrollLeft + focus - gutter - 24) / Math.max(1, oldPlot - 48)));
     zoom = Math.max(1, Math.min(32, zoom * factor));
@@ -876,14 +922,14 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
   };
   scroll.addEventListener("wheel", onWheel, { passive: false });
   button(toolbar, "Fit", fit);
-  button(toolbar, "Zoom in", () => {
+  button(toolbar, "+", () => {
     clearWheel();
     zoomBy(2);
-  });
-  button(toolbar, "Zoom out", () => {
+  }).setAttribute("aria-label", "Zoom in");
+  button(toolbar, "\u2212", () => {
     clearWheel();
     zoomBy(0.5);
-  });
+  }).setAttribute("aria-label", "Zoom out");
   const gridLabel = toolbar.createEl("label", { cls: "vt-grid-toggle" }), gridInput = gridLabel.createEl("input", { type: "checkbox" });
   gridLabel.createSpan({ text: "Year lines" });
   gridInput.checked = view.yearGrid === true;
@@ -915,6 +961,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
     scroll.removeEventListener("wheel", onWheel);
     observer.disconnect();
     root.removeEventListener("keydown", onKey);
+    toolbar.remove();
     root.remove();
   }, setVisible(ids) {
     visible = ids;
@@ -956,12 +1003,12 @@ var TimelineView = class extends import_obsidian3.ItemView {
     const hero = root.createDiv({ cls: "vt-hero" });
     hero.createEl("h1", { text: "Visual Timeline" });
     const actions = hero.createDiv({ cls: "vt-actions" });
-    this.button(actions, "New timeline event", () => this.plugin.openNewEvent());
+    this.button(actions, "New event", () => this.plugin.openNewEvent());
     this.button(actions, "Configure timeline", () => void this.plugin.openComposition());
     this.button(actions, "Refresh", () => void this.render());
     this.button(actions, "Settings", () => this.plugin.openSettings());
     const controls = root.createDiv({ cls: "vt-controls" });
-    const search = controls.createEl("input", { type: "search", placeholder: "Search events, entities, tags, or places", attr: { "aria-label": "Search timeline" } });
+    const search = controls.createEl("input", { type: "search", placeholder: "Search names, events, tags, places\u2026", attr: { "aria-label": "Search timeline" } });
     search.value = this.query;
     search.oninput = () => {
       this.query = search.value;
@@ -971,6 +1018,7 @@ var TimelineView = class extends import_obsidian3.ItemView {
     const views = controls.createEl("select", { attr: { "aria-label": "Saved composition" } });
     config.views.forEach((v) => views.createEl("option", { text: v.name, value: v.id }));
     views.value = config.active;
+    controls.insertBefore(views, search);
     views.onchange = () => {
       const old = config.active;
       config.active = views.value;
@@ -1013,10 +1061,10 @@ var TimelineView = class extends import_obsidian3.ItemView {
           saved.yearGrid = previous;
           throw error;
         }
-      });
+      }, root.querySelector(".vt-controls"));
     }
     const status = root.querySelector(".vt-range");
-    if (status) status.textContent = `${records.length} matching records \xB7 ${view.rows.filter((r) => r.enabled).length} rows \xB7 select an item for details`;
+    if (status) status.textContent = `${records.length} matching notes \xB7 ${view.rows.filter((r) => r.enabled).length} ${view.rows.filter((r) => r.enabled).length === 1 ? "row" : "rows"}`;
     (_c = this.chart) == null ? void 0 : _c.setVisible(new Set(records.map((r) => r.id)));
   }
   button(parent, label, action) {
@@ -1252,9 +1300,11 @@ var CompositionModal = class extends import_obsidian5.Modal {
           d.setValue(layer.style).onChange((v) => layer.style = v);
         });
         new import_obsidian5.Setting(details).setName("Placement").addDropdown((d) => d.addOption("background", "Background").addOption("foreground", "Foreground").setValue(layer.plane).onChange((v) => layer.plane = v));
+        new import_obsidian5.Setting(details).setName("Band layout").setDesc("Bands use a quiet context strip by default. Behind an anchor lane requires one unambiguous anchor; it never fills the entire chart.").addDropdown((d) => d.addOption("context", "Separate context strip").addOption("lane", "Behind the assigned lane").setValue(layer.bandPlacement || "context").onChange((v) => layer.bandPlacement = v));
+        new import_obsidian5.Setting(details).setName("Tint streams from attached durations").setDesc("When every attached duration uses one color, use it for that anchor stream too. Mixed colors retain the stream layer color.").addToggle((t) => t.setValue(layer.tintFromAttached === true).onChange((v) => layer.tintFromAttached = v));
         new import_obsidian5.Setting(details).setName("Opacity").addSlider((s) => s.setLimits(10, 100, 5).setValue(layer.opacity * 100).setDynamicTooltip().onChange((v) => layer.opacity = v / 100));
         new import_obsidian5.Setting(details).setName("Color").addColorPicker((p) => p.setValue(layer.color).onChange((v) => layer.color = v));
-        new import_obsidian5.Setting(details).setName("Labels").setDesc("Labels never move records. Full names are always available in the detail panel.").addDropdown((d) => d.addOption("adaptive", "Adaptive: show names that fit").addOption("always", "Prefer visible: omit collisions").addOption("selection", "On hover or keyboard focus").addOption("hidden", "Hidden (details remain)").setValue(layer.labels).onChange((v) => layer.labels = v));
+        new import_obsidian5.Setting(details).setName("Labels").setDesc("Names use aligned rails and may truncate in dense periods. Labels never move records. Full names remain in details.").addDropdown((d) => d.addOption("adaptive", "Adaptive: aligned name rails").addOption("always", "Prefer visible names").addOption("selection", "On hover or keyboard focus").addOption("hidden", "Hidden (details remain)").setValue(layer.labels).onChange((v) => layer.labels = v));
         this.button(details, "Remove layer", () => {
           row.layers.splice(i, 1);
           this.draw();

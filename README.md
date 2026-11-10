@@ -1,5 +1,15 @@
 # Visual Timeline
 
+## Aligned name rails (1.5)
+
+The chart emphasizes continuity, then ruler changes, then details. Kingdom names stay inside their flowing streams; reign names use fixed text rails with short orthogonal leaders rather than floating label buttons. Dense names truncate without moving dates. True overlapping durations stay on contained subtracks; every record remains selectable directly or through its named label/count marker.
+
+Selection opens a compact information strip on desktop with full title, dates, anchor, an **Open note** action, and expandable categories/relationships. Narrow screens use a dismissible bottom sheet. Wheel zoom and drag-to-pan remain available, with a shared sticky date ruler and optional full-height year lines.
+
+Bands default to a subdued, bounded context strip. Configure **Band layout** to place a band behind its assigned lane instead; an unresolved band never fills the chart. A context strip describes the whole row and does not pretend a multi-kingdom era belongs to one kingdom. Narrow its note-type/category filters to avoid representing the same event in several layers.
+
+**Tint streams from attached durations** optionally uses the single consistent attached duration color for each anchor stream. Mixed attached colors retain the stream layer's configured color. Other saved colors, filters, row/layer IDs, visibility and source notes are preserved. Extra references to non-anchor records no longer invalidate a single explicit anchor reference. BC ruler ticks use round displayed years, without introducing a year zero.
+
 Visual Timeline is a local, Markdown-first Obsidian plugin for displaying events, eras, kingdoms, places, people, and explicit historical relationships on a scalable timeline.
 
 The plugin does not require a network service or map API. It indexes ordinary Markdown notes and preserves user-authored content. Timeline relationships are explicit: continuity, splits, merges, succession, and parallel relationships are never inferred from names alone.

@@ -1,4 +1,5 @@
 node_modules/
 main.js
 .cache/
+.impeccable/
 .DS_Store

@@ -21,6 +21,11 @@ export function timeTicks(min:number,max:number,width:number):number[]{
   const raw=(max-min)/Math.max(2,Math.floor(width/110));
   const power=10**Math.floor(Math.log10(Math.max(raw,1/366)));
   const step=[1,2,5,10].map(n=>n*power).find(n=>n>=raw)||power*10;
-  const ticks:number[]=[];for(let n=Math.ceil(min/step)*step;n<=max+step/100&&ticks.length<100;n+=step)ticks.push(n);
-  return ticks;
+  const ticks:number[]=[];
+  if(step>=1){
+    // Round displayed BC years, not astronomical coordinates (which are one off).
+    for(let n=Math.max(step,Math.ceil((1-Math.min(max,0))/step)*step);n<=1-min&&ticks.length<100;n+=step)ticks.push(1-n);
+    for(let n=Math.max(step,Math.ceil(Math.max(1,min)/step)*step);n<=max&&ticks.length<100;n+=step)ticks.push(n);
+  }else for(let n=Math.ceil(min/step)*step;n<=max+step/100&&ticks.length<100;n+=step)ticks.push(n);
+  return ticks.sort((a,b)=>a-b);
 }
