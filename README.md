@@ -1,5 +1,32 @@
 # Visual Timeline
 
+## Separate timelines (1.7)
+
+Use the **Timeline** selector near the top of the app to choose the active timeline. **New timeline** creates a named collection; **Manage timelines** edits its name, description and included notes, or archives/reactivates it. The selection is remembered across restarts. **All records** keeps the original complete library and its existing saved views.
+
+The **Layout** selector is separate: each timeline saves its own rows, layers, display styles and views. A new timeline starts with an unfiltered **Overview**, or can optionally copy the current layouts. Copying layouts never copies notes or adds membership automatically. New records default to the active timeline; the creation dialog can assign them elsewhere or leave them in All records only.
+
+Membership is stored in one ordinary Markdown workspace note per timeline, under the configurable **Timeline workspaces folder** (blank defaults to `<root folder>/Timelines`). Records are included by stable ID and remain in their original locations. One note can appear in several timelines without duplication. For older notes without an ID, the runtime uses `path:<vault-relative path>`; renaming such a note requires updating its membership reference. No IDs are written into old notes automatically.
+
+```yaml
+type: visual-timeline-project
+schema_version: 1
+timeline_project_id: VTP-EXAMPLE
+name: Church history
+description: A focused history collection
+status: active
+record_ids:
+  - VTL-EXAMPLE-EVENT
+created: "2026-01-01T00:00:00.000Z"
+updated: "2026-01-01T00:00:00.000Z"
+```
+
+Missing membership references are retained and surfaced for review. Duplicate workspace IDs are not silently selected. Archiving hides a timeline from the selector but preserves its notes and layouts. Changing the workspace folder never moves existing files. A missing or archived active timeline falls back visibly to All records.
+
+If a workspace saves but copying its layouts or opening it fails, the dialog confirms the saved state and offers **Retry setup** or **Close**. Retrying never creates a second workspace or repeats completed stages. Closing keeps the saved workspace; a failed layout copy leaves the default Overview available.
+
+Additional commands: `visual-timeline:new-timeline` and `visual-timeline:manage-timelines`. Existing dashboard, creation and configuration commands remain valid. This release does not migrate, move, or reclassify any existing historical notes.
+
 ## Diamond point markers and closer lanes (1.6.1)
 
 Bar/line records with equal start and end coordinates now use an **18px date-pinned diamond**, rather than a nearly invisible divider. Known nonzero durations remain bars; the marker's width never invents additional time. A year-precision point shows its recorded year and clarifies that an exact duration was not recorded.

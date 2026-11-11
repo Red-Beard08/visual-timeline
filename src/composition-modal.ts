@@ -3,16 +3,17 @@ import type VisualTimeline from './main';
 import type {TimelineRecord} from './types';
 import {CompositionSettings,DisplayStyle,TimelineLayer,STYLES,newLayer,newRow,uid,reorder,normalizeComposition,matches} from './composition';
 import {RECORD_TYPES} from './utils';
+import {compositionForTimeline} from './timelines';
 
 /** Transactional editor: every control edits a private draft; Cancel never writes. */
 export class CompositionModal extends Modal {
   private draft:CompositionSettings;
-  constructor(private plugin:VisualTimeline,private records:TimelineRecord[]){super(plugin.app);this.draft=normalizeComposition(JSON.parse(JSON.stringify(plugin.settings.composition)));}
+  constructor(private plugin:VisualTimeline,private records:TimelineRecord[],private projectId=''){super(plugin.app);this.draft=compositionForTimeline(plugin.settings,projectId);}
   onOpen():void{this.modalEl.addClass('vt-composition-modal');this.draw();this.contentEl.scrollTop=0;}
   private button(parent:HTMLElement,label:string,action:()=>void):HTMLButtonElement {const b=parent.createEl('button',{text:label});b.onclick=action;return b;}
   private draw():void {
     const c=this.contentEl;c.empty();c.addClass('vt-composition-editor');
-    c.createEl('h2',{text:'Configure timeline'});
+    c.createEl('h2',{text:'Configure layout'});
     c.createEl('p',{cls:'vt-section-note',text:'Rows share a date scale. Layers overlay within a row. Changes apply only when you save; historical notes are never changed.'});
     const view=this.draft.views.find(v=>v.id===this.draft.active)!;
     new Setting(c).setName('Saved view').addDropdown(d=>{for(const v of this.draft.views)d.addOption(v.id,v.name);d.setValue(view.id).onChange(id=>{this.draft.active=id;this.draw();});});
@@ -81,9 +82,8 @@ export class CompositionModal extends Modal {
     }
   }
   private async save():Promise<void>{
-    const previous=this.plugin.settings.composition;
-    try{this.plugin.settings.composition=normalizeComposition(this.draft);await this.plugin.saveSettings();}
-    catch(error){this.plugin.settings.composition=previous;new Notice(`Could not save composition: ${String(error)}`);return;}
+    try{await this.plugin.saveComposition(this.projectId,normalizeComposition(this.draft));}
+    catch(error){new Notice(`Could not save composition: ${String(error)}`);return;}
     this.close();
     try{await this.plugin.refreshViews();}catch{new Notice('Composition saved. Reopen the timeline to refresh the view.');}
   }

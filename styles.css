@@ -3,7 +3,7 @@
   height:100%; min-height:0; overflow-y:auto; padding:20px 24px calc(56px + env(safe-area-inset-bottom));
   background:var(--background-primary); color:var(--text-normal); font-family:var(--font-interface); overflow-wrap:break-word;
 }
-.visual-timeline-dashboard *, .vt-composition-modal * { box-sizing:border-box; }
+.visual-timeline-dashboard *, .vt-composition-modal *, .vt-project-modal * { box-sizing:border-box; }
 .visual-timeline-dashboard ::selection { background:var(--text-selection); }
 .vt-hero { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 0 18px; border-bottom:1px solid var(--background-modifier-border); }
 .vt-hero h1 { font-size:25px; font-weight:650; line-height:1.3; margin:0; letter-spacing:-.015em; }
@@ -11,6 +11,17 @@
 .vt-controls { margin:16px 0 12px; }
 .vt-controls input[type=search] { flex:1 1 220px; min-width:150px; }
 .vt-controls select { max-width:320px; }
+.vt-timeline-switcher { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:18px 0 4px; }
+.vt-timeline-select, .vt-layout-select { display:flex; align-items:center; gap:8px; min-width:0; }
+.vt-timeline-select > span, .vt-layout-select > span { color:var(--text-muted); font-size:13px; }
+.vt-timeline-select select { min-width:200px; max-width:360px; }
+.vt-timeline-switcher button, .vt-timeline-switcher select { height:auto; min-height:36px; padding:6px 12px; }
+.vt-timeline-description { margin:8px 0 0; max-width:72ch; color:var(--text-muted); font-size:13px; }
+.vt-project-warnings { margin:12px 0; color:var(--text-warning); font-size:13px; }
+.vt-project-empty { margin-top:24px; padding:24px 0; border-top:1px solid var(--background-modifier-border); }
+.vt-project-empty h2 { font-size:20px; margin:0 0 8px; }
+.vt-project-empty p { color:var(--text-muted); max-width:65ch; }
+.vt-project-empty button { margin:0 8px 8px 0; }
 .vt-chart-tools { margin:0 0 10px; }
 .vt-controls .vt-chart-tools { margin:0; padding-left:12px; border-left:1px solid var(--background-modifier-border); }
 .vt-actions button, .vt-controls button, .vt-chart-tools button, .vt-inspector button { min-height:34px; height:auto; padding:6px 12px; line-height:1.35; }
@@ -80,6 +91,31 @@
 .vt-section-note { color:var(--text-muted); font-size:13px; line-height:1.5; max-width:72ch; }
 /* Transactional composition editor and record creation share mobile-safe forms. */
 .vt-composition-modal { width:min(880px,94vw); max-height:90vh; max-height:90dvh; }
+.vt-project-modal { width:min(760px,94vw); max-height:90vh; max-height:90dvh; }
+.vt-project-editor { overflow-y:auto; padding:4px 8px calc(80px + env(safe-area-inset-bottom)); scroll-padding-bottom:100px; }
+.vt-project-editor h2, .vt-modal h2 { margin:8px 0 12px; }
+.vt-project-editor .setting-item, .vt-modal .setting-item { padding:12px 0; gap:16px; }
+.vt-project-editor .setting-item-control, .vt-modal .setting-item-control { flex-wrap:wrap; gap:8px; }
+.vt-project-editor textarea { resize:vertical; max-width:100%; }
+.vt-project-editor button { min-height:36px; height:auto; padding:6px 14px; line-height:1.4; }
+.vt-project-tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.vt-project-members-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-top:24px; }
+.vt-project-members-heading h3 { font-size:16px; margin:0 0 12px; }
+.vt-project-search { width:100%; margin-bottom:10px; }
+.vt-project-members { margin-top:12px; }
+.vt-project-member { display:flex; align-items:center; gap:12px; padding:12px 0; min-height:48px; border-bottom:1px solid var(--background-modifier-border); cursor:pointer; }
+.vt-project-member input { flex-shrink:0; }
+.vt-project-member > div { min-width:0; }
+.vt-project-member strong { font-size:14px; line-height:1.5; }
+.vt-project-member small, .vt-project-row small { display:block; color:var(--text-muted); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+.vt-project-member:hover { background:var(--background-secondary); }
+.vt-project-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 0; border-bottom:1px solid var(--background-modifier-border); }
+.vt-project-row > div { min-width:0; }
+.vt-project-row strong, .vt-project-row p { overflow-wrap:anywhere; }
+.vt-project-row p { margin:6px 0 0; color:var(--text-muted); font-size:13px; }
+.vt-project-error { color:var(--text-error); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.vt-project-error:empty { display:none; }
+.vt-project-editor :focus-visible, .vt-modal :focus-visible { outline:2px solid var(--interactive-accent); outline-offset:3px; }
 .vt-composition-editor, .vt-modal { overflow-y:auto; padding:4px 8px calc(80px + env(safe-area-inset-bottom)); scroll-padding-bottom:100px; }
 .vt-composition-editor h2 { margin:8px 0 12px; }
 .vt-composition-editor .setting-item { gap:16px; padding:12px 0; }
@@ -103,6 +139,10 @@
   .vt-hero h1 { font-size:23px; }
   .vt-controls input[type=search] { flex-basis:100%; }
   .vt-controls select { flex:1; min-width:0; max-width:100%; }
+  .vt-layout-select { flex:1 1 100%; }
+  .vt-timeline-select { flex:1 1 100%; }
+  .vt-timeline-select select { flex:1; min-width:0; max-width:100%; }
+  .vt-timeline-switcher button, .vt-timeline-switcher select { min-height:44px; }
   .vt-controls .vt-chart-tools { padding-left:0; border-left:0; }
   .vt-actions button, .vt-controls button, .vt-controls select { min-height:40px; }
 }
@@ -114,6 +154,11 @@
   .vt-chart-scroll { max-height:62dvh; }
 }
 @media(max-width:600px) {
+  .vt-project-editor .setting-item, .vt-modal .setting-item { align-items:stretch; flex-direction:column; gap:8px; }
+  .vt-project-editor .setting-item-control, .vt-modal .setting-item-control { justify-content:flex-start; }
+  .vt-project-editor input[type=text], .vt-project-editor textarea, .vt-project-editor select, .vt-modal input[type=text], .vt-modal select { max-width:100%; width:100%; }
+  .vt-project-editor button { min-height:44px; }
+  .vt-project-row { align-items:flex-start; flex-direction:column; gap:10px; }
   .vt-composition-editor .setting-item { align-items:stretch; flex-direction:column; gap:8px; }
   .vt-composition-editor .setting-item-control { justify-content:flex-start; }
   .vt-composition-editor input[type=text], .vt-composition-editor select { max-width:100%; width:100%; }

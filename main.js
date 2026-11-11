@@ -24,7 +24,7 @@ __export(main_exports, {
   default: () => VisualTimeline
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian6 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/settings.ts
 var import_obsidian = require("obsidian");
@@ -34,45 +34,49 @@ var TimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
     this.plugin = plugin;
   }
   display() {
-    const { containerEl } = this;
-    containerEl.empty();
-    containerEl.createEl("h2", { text: "Visual Timeline" });
-    containerEl.createEl("h3", { text: "Storage" });
-    this.text(containerEl, "Root folder", "Markdown root folder", "rootFolder");
-    this.text(containerEl, "Records folder", "Folder scanned for created records", "recordsFolder");
-    this.text(containerEl, "Index file", "Optional index note", "indexFile");
-    this.text(containerEl, "Local map asset", "Optional local SVG/GeoJSON path; no network is used", "mapAssetPath");
-    containerEl.createEl("h3", { text: "Timeline" });
-    this.number(containerEl, "Default range (years)", "Years shown around the selected range", "defaultRangeYears");
-    this.text(containerEl, "Default layer", "Initial layer filter", "defaultLayer");
-    new import_obsidian.Setting(containerEl).setName("Show unresolved relationships").setDesc("Keep unresolved references visible for review.").addToggle((t) => t.setValue(this.plugin.settings.showUnresolved).onChange(async (v) => {
+    const c = this.containerEl;
+    c.empty();
+    c.createEl("h2", { text: "Visual Timeline" });
+    c.createEl("h3", { text: "Storage" });
+    this.text(c, "Root folder", "Markdown root folder. Changing paths never moves existing files.", "rootFolder");
+    this.text(c, "Records folder", "Destination for newly created historical records.", "recordsFolder");
+    this.text(c, "Timeline workspaces folder", "Blank uses <root folder>/Timelines. Existing workspace notes are not moved.", "timelinesFolder");
+    this.text(c, "Index file", "Optional index note", "indexFile");
+    this.text(c, "Local map asset", "Optional local SVG/GeoJSON path; no network is used", "mapAssetPath");
+    c.createEl("h3", { text: "Timelines" });
+    new import_obsidian.Setting(c).setName("Manage timelines").setDesc("Create named collections, choose included notes, rename or archive timelines. Each has its own layouts.").addButton((b) => b.setButtonText("Manage timelines").onClick(() => void this.plugin.openTimelineManager()));
+    this.number(c, "Default range (years)", "Years shown around the selected range", "defaultRangeYears");
+    this.text(c, "Default layer", "Initial layer filter", "defaultLayer");
+    new import_obsidian.Setting(c).setName("Show unresolved relationships").setDesc("Keep unresolved references visible for review.").addToggle((t) => t.setValue(this.plugin.settings.showUnresolved).onChange(async (v) => {
       this.plugin.settings.showUnresolved = v;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Compact layout").addToggle((t) => t.setValue(this.plugin.settings.compact).onChange(async (v) => {
+    new import_obsidian.Setting(c).setName("Compact layout").addToggle((t) => t.setValue(this.plugin.settings.compact).onChange(async (v) => {
       this.plugin.settings.compact = v;
       await this.plugin.saveSettings();
     }));
-    containerEl.createEl("h3", { text: "Taxonomy" });
-    new import_obsidian.Setting(containerEl).setName("Layers").setDesc("Comma-separated lane names").addText((t) => t.setValue(this.plugin.settings.layers.join(", ")).onChange(async (v) => {
+    c.createEl("h3", { text: "Taxonomy" });
+    new import_obsidian.Setting(c).setName("Layers").setDesc("Comma-separated lane names").addText((t) => t.setValue(this.plugin.settings.layers.join(", ")).onChange(async (v) => {
       this.plugin.settings.layers = v.split(",").map((x) => x.trim()).filter(Boolean);
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Categories").setDesc("Comma-separated record categories").addText((t) => t.setValue(this.plugin.settings.categories.join(", ")).onChange(async (v) => {
+    new import_obsidian.Setting(c).setName("Categories").setDesc("Comma-separated record categories").addText((t) => t.setValue(this.plugin.settings.categories.join(", ")).onChange(async (v) => {
       this.plugin.settings.categories = v.split(",").map((x) => x.trim()).filter(Boolean);
       await this.plugin.saveSettings();
     }));
   }
   text(c, name, desc, key) {
-    new import_obsidian.Setting(c).setName(name).setDesc(desc).addText((t) => t.setValue(String(this.plugin.settings[key])).onChange(async (v) => {
-      this.plugin.settings[key] = v.trim();
-      await this.plugin.saveSettings();
-    }));
+    new import_obsidian.Setting(c).setName(name).setDesc(desc).addText((t) => {
+      var _a;
+      return t.setValue(String((_a = this.plugin.settings[key]) != null ? _a : "")).onChange(async (v) => {
+        this.plugin.settings[key] = v.trim();
+        await this.plugin.saveSettings();
+      });
+    });
   }
   number(c, name, desc, key) {
     new import_obsidian.Setting(c).setName(name).setDesc(desc).addText((t) => t.setValue(String(this.plugin.settings[key])).onChange(async (v) => {
-      const n = Math.max(1, Number(v) || 1);
-      this.plugin.settings[key] = n;
+      this.plugin.settings[key] = Math.max(1, Number(v) || 1);
       await this.plugin.saveSettings();
     }));
   }
@@ -135,7 +139,7 @@ function safeName(value) {
   return value.replace(/[\\/:*?"<>|#^[\]]/g, "-").replace(/\s+/g, " ").trim().slice(0, 140) || "Untitled";
 }
 function id(prefix = "VTL") {
-  return `${prefix}-${Date.now().toString(36).toUpperCase()}`;
+  return `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
 }
 function parseDate(raw) {
   if (raw && typeof raw === "object") {
@@ -185,47 +189,20 @@ var TimelineRepository = class {
     return records.sort((a, b) => dateValue(a.date.start) - dateValue(b.date.start) || a.title.localeCompare(b.title));
   }
   async createEvent(input) {
+    return (await this.createEventRecord(input)).file;
+  }
+  async createEventRecord(input) {
     const recordId = id(this.settings.idPrefix), folder = (0, import_obsidian2.normalizePath)(this.settings.recordsFolder);
     await this.ensureFolder(folder);
     const path = (0, import_obsidian2.normalizePath)(`${folder}/${safeName(this.settings.filenameTemplate.replace("{id}", recordId).replace("{title}", input.title))}.md`);
-    const yamlList = (values, fallback) => values.length ? values.map((v) => `  - ${v}`).join("\n") : `  - ${fallback}`;
-    const yamlOptional = (values) => values.length ? `
-${values.map((v) => `  - ${v}`).join("\n")}` : " []";
-    const content = `---
-type: ${input.type}
-schema_version: 1
-timeline_id: ${recordId}
-title: ${input.title}
-status: active
-tags:
-${yamlList(input.tags, "timeline")}
-layers:
-${yamlList(input.layers, "general")}
-categories:
-${yamlList(input.categories, "event")}
-locations:${yamlOptional(input.locations)}
-entities:${yamlOptional(input.entities)}
-date:
-  start: ${input.date.start}
-  precision: ${input.date.precision}
-  circa: ${input.date.circa}
-  display: ${input.date.display || input.date.start}
-relations:
-  continued_from: []
-  split_into: []
-  merged_into: []
-  preceded_by: []
-  succeeded_by: []
-  related_to: []
-  contemporary_with: []
-created: ${(/* @__PURE__ */ new Date()).toISOString()}
-updated: ${(/* @__PURE__ */ new Date()).toISOString()}
----
+    const now = (/* @__PURE__ */ new Date()).toISOString(), fm = { type: input.type, schema_version: 1, timeline_id: recordId, title: input.title, status: "active", tags: input.tags.length ? input.tags : ["timeline"], layers: input.layers.length ? input.layers : ["general"], categories: input.categories.length ? input.categories : ["event"], locations: input.locations, entities: input.entities, date: { ...input.date, display: input.date.display || input.date.start }, relations: { continued_from: [], split_into: [], merged_into: [], preceded_by: [], succeeded_by: [], related_to: [], contemporary_with: [] }, created: now, updated: now };
+    const file = await this.app.vault.create(path, `---
+${(0, import_obsidian2.stringifyYaml)(fm)}---
 
 # ${input.title}
 
-`;
-    return this.app.vault.create(path, content);
+`);
+    return { id: recordId, file };
   }
   async ensureFolder(path) {
     const parts = path.split("/");
@@ -237,8 +214,100 @@ updated: ${(/* @__PURE__ */ new Date()).toISOString()}
   }
 };
 
-// src/dashboard.ts
+// src/timeline-repository.ts
 var import_obsidian3 = require("obsidian");
+var TYPE = "visual-timeline-project";
+var unique = (ids) => [...new Set(ids.map((v) => v.trim()).filter(Boolean))].sort();
+function frontmatter(content) {
+  const match = content.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) return {};
+  const parsed = (0, import_obsidian3.parseYaml)(match[1]);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid frontmatter");
+  return parsed;
+}
+function fields(fm) {
+  return JSON.stringify([fm.type, fm.schema_version, fm.timeline_project_id, fm.name, fm.description, fm.status, fm.record_ids]);
+}
+function project(file, fm) {
+  if (fm.schema_version !== 1 || typeof fm.timeline_project_id !== "string" || !fm.timeline_project_id.trim() || typeof fm.name !== "string" || !fm.name.trim() || !Array.isArray(fm.record_ids) || fm.record_ids.some((v) => typeof v !== "string") || !["active", "archived"].includes(String(fm.status))) throw new Error("Unsupported or incomplete timeline metadata");
+  return { id: fm.timeline_project_id, name: fm.name.trim(), description: typeof fm.description === "string" ? fm.description : "", status: fm.status, recordIds: unique(fm.record_ids), path: file.path, file, revision: fields(fm) };
+}
+var TimelineProjectRepository = class {
+  constructor(app, settings) {
+    this.app = app;
+    this.settings = settings;
+  }
+  folder() {
+    const value = (this.settings.timelinesFolder || `${this.settings.rootFolder}/Timelines`).trim().replace(/\\/g, "/");
+    if (!value || value.startsWith("/") || value.includes(":") || value.split("/").some((p) => p === ".." || p === ".")) throw new Error("Timeline folder must be a vault-relative path without . or .. segments.");
+    return (0, import_obsidian3.normalizePath)(value);
+  }
+  async all() {
+    const folder = this.folder() + "/", projects = [], warnings = [];
+    for (const file of this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(folder))) {
+      try {
+        const fm = frontmatter(await this.app.vault.cachedRead(file));
+        if (fm.type === TYPE) projects.push(project(file, fm));
+      } catch (e) {
+        warnings.push(`Could not read timeline workspace: ${file.path}`);
+      }
+    }
+    const counts = /* @__PURE__ */ new Map();
+    projects.forEach((p) => counts.set(p.id, (counts.get(p.id) || 0) + 1));
+    const duplicates = new Set([...counts].filter(([, n]) => n > 1).map(([key]) => key));
+    for (const key of duplicates) warnings.push(`Duplicate timeline ID ${key}. Give each workspace a unique ID before opening it.`);
+    return { projects: projects.filter((p) => !duplicates.has(p.id)).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)), warnings };
+  }
+  async save(draft, existing) {
+    const name = draft.name.trim();
+    if (!name) throw new Error("Give this timeline a name.");
+    const catalog = await this.all();
+    if (catalog.warnings.length) throw new Error("Resolve the timeline workspace warnings before saving.");
+    if (existing && !catalog.projects.some((p) => p.id === existing.id && p.path === existing.path)) throw new Error("This timeline was moved or removed. Reopen the manager before saving.");
+    if (catalog.projects.some((p) => p.id !== (existing == null ? void 0 : existing.id) && p.name.toLocaleLowerCase() === name.toLocaleLowerCase())) throw new Error("A timeline with this name already exists. Choose another name.");
+    const values = { name, description: draft.description.trim(), status: draft.status, record_ids: unique(draft.recordIds) };
+    if (!existing) {
+      const folder = this.folder();
+      let current2 = "";
+      for (const part of folder.split("/")) {
+        current2 = current2 ? `${current2}/${part}` : part;
+        if (!this.app.vault.getAbstractFileByPath(current2)) await this.app.vault.createFolder(current2);
+      }
+      const projectId = id("VTP"), now = (/* @__PURE__ */ new Date()).toISOString();
+      const fm = { type: TYPE, schema_version: 1, timeline_project_id: projectId, ...values, created: now, updated: now };
+      const file2 = await this.app.vault.create((0, import_obsidian3.normalizePath)(`${folder}/${safeName(name)} - ${projectId}.md`), `---
+${(0, import_obsidian3.stringifyYaml)(fm)}---
+
+# ${name}
+
+This timeline groups records by their stable IDs. A record can belong to several timelines without being copied.
+
+## Notes
+
+`);
+      return project(file2, fm);
+    }
+    const file = this.app.vault.getAbstractFileByPath(existing.path);
+    if (!(file instanceof import_obsidian3.TFile)) throw new Error("Timeline workspace is no longer available.");
+    const currentFm = frontmatter(await this.app.vault.read(file));
+    if (fields(currentFm) !== existing.revision) throw new Error("This timeline changed elsewhere. Reopen it before saving.");
+    const current = project(file, currentFm);
+    if (current.name === values.name && current.description === values.description && current.status === values.status && JSON.stringify(current.recordIds) === JSON.stringify(values.record_ids)) return current;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      if (fields(fm) !== existing.revision) throw new Error("This timeline changed elsewhere. Reopen it before saving.");
+      Object.assign(fm, values, { updated: (/* @__PURE__ */ new Date()).toISOString() });
+    });
+    return project(file, frontmatter(await this.app.vault.read(file)));
+  }
+  async addRecord(projectId, recordId) {
+    const catalog = await this.all(), p = catalog.projects.find((p2) => p2.id === projectId && p2.status === "active");
+    if (!p) throw new Error("Selected timeline is unavailable.");
+    await this.save({ name: p.name, description: p.description, status: p.status, recordIds: [...p.recordIds, recordId] }, p);
+  }
+};
+
+// src/timeline-modal.ts
+var import_obsidian4 = require("obsidian");
 
 // src/composition.ts
 var STYLES = ["stream", "line", "dot", "box", "band"];
@@ -312,6 +381,226 @@ function normalizeAttachment(value) {
   const overrides = Object.fromEntries(Object.entries(a.overrides || {}).filter(([k, v]) => k && typeof v === "string" && v));
   return { anchorLayer: a.anchorLayer, relationship: keys.includes(a.relationship || "") ? a.relationship : "related_to", overrides };
 }
+
+// src/timelines.ts
+function recordsForTimeline(records, project2) {
+  if (!project2) return records;
+  const ids = new Set(project2.recordIds);
+  return records.filter((r) => ids.has(r.id));
+}
+function activeProject(settings, catalog) {
+  return catalog.projects.find((p) => p.id === settings.activeTimeline && p.status === "active");
+}
+function compositionForTimeline(settings, projectId = "") {
+  if (!projectId) return normalizeComposition(settings.composition);
+  if (settings.timelineLayouts && Object.prototype.hasOwnProperty.call(settings.timelineLayouts, projectId)) return normalizeComposition(settings.timelineLayouts[projectId]);
+  const viewId = `${projectId}-overview`;
+  return { version: 2, active: viewId, categoryStyles: { ...normalizeComposition(settings.composition).categoryStyles }, views: [{
+    id: viewId,
+    name: "Overview",
+    yearGrid: true,
+    rows: [{ id: `${projectId}-row`, name: "Timeline", height: 220, enabled: true, maxSubtracks: 3, anchorOrder: [], layers: [{
+      id: `${projectId}-records`,
+      name: "Records",
+      enabled: true,
+      types: [],
+      categories: [],
+      tags: [],
+      style: "default",
+      plane: "foreground",
+      opacity: 1,
+      color: "#659fa0",
+      labels: "adaptive",
+      bandPlacement: "context",
+      bandShape: "box"
+    }] }]
+  }] };
+}
+
+// src/timeline-modal.ts
+var TimelineManagerModal = class extends import_obsidian4.Modal {
+  constructor(plugin, catalog, records, create = false) {
+    super(plugin.app);
+    this.plugin = plugin;
+    this.catalog = catalog;
+    this.records = records;
+    this.copyLayout = false;
+    this.busy = false;
+    if (create) this.start();
+  }
+  onOpen() {
+    this.modalEl.addClass("vt-project-modal");
+    this.draw();
+    this.contentEl.scrollTop = 0;
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+  start(p) {
+    this.editing = p;
+    this.copyLayout = false;
+    this.draft = p ? { name: p.name, description: p.description, status: p.status, recordIds: [...p.recordIds] } : { name: "", description: "", status: "active", recordIds: [] };
+  }
+  button(parent, label, action) {
+    const b = parent.createEl("button", { text: label });
+    b.onclick = action;
+    return b;
+  }
+  draw() {
+    const c = this.contentEl;
+    c.empty();
+    c.addClass("vt-project-editor");
+    c.scrollTop = 0;
+    c.createEl("h2", { text: this.draft ? this.editing ? "Edit timeline" : "New timeline" : "Manage timelines" });
+    if (!this.draft) {
+      this.drawList(c);
+      return;
+    }
+    const draft = this.draft;
+    c.createEl("p", { cls: "vt-section-note", text: "Choose the notes in this timeline. Notes stay in place and can be shared with other timelines. Layouts are saved separately for each timeline." });
+    new import_obsidian4.Setting(c).setName("Name").addText((t) => {
+      t.inputEl.setAttribute("aria-label", "Timeline name");
+      t.setValue(draft.name).onChange((v) => draft.name = v);
+    });
+    new import_obsidian4.Setting(c).setName("Description").addTextArea((t) => {
+      t.inputEl.rows = 2;
+      t.inputEl.setAttribute("aria-label", "Timeline description");
+      t.setValue(draft.description).onChange((v) => draft.description = v);
+    });
+    if (this.editing) new import_obsidian4.Setting(c).setName("Status").setDesc("Archived timelines keep their notes and layouts, but leave the active selector.").addDropdown((d) => d.addOption("active", "Active").addOption("archived", "Archived").setValue(draft.status).onChange((v) => draft.status = v));
+    else new import_obsidian4.Setting(c).setName("Copy current layouts").setDesc("Off starts with an unfiltered Overview. On copies the current rows, layers, and saved views, not its notes.").addToggle((t) => t.setValue(this.copyLayout).onChange((v) => this.copyLayout = v));
+    const heading = c.createDiv({ cls: "vt-project-members-heading" });
+    heading.createEl("h3", { text: "Included notes" });
+    const count = heading.createSpan({ cls: "vt-section-note", attr: { "aria-live": "polite" } });
+    const updateCount = () => count.textContent = `${draft.recordIds.length} selected`;
+    const search = c.createEl("input", { type: "search", placeholder: "Find notes by name, type, or tag\u2026", cls: "vt-project-search", attr: { "aria-label": "Find notes to include" } });
+    const tools = c.createDiv({ cls: "vt-project-tools" }), list2 = c.createDiv({ cls: "vt-project-members" });
+    let matching = this.records;
+    const setMember = (key, on) => {
+      draft.recordIds = on ? [.../* @__PURE__ */ new Set([...draft.recordIds, key])] : draft.recordIds.filter((id2) => id2 !== key);
+      updateCount();
+    };
+    const drawMembers = () => {
+      const q = search.value.trim().toLocaleLowerCase();
+      matching = this.records.filter((r) => `${r.title} ${r.type} ${r.tags.join(" ")} ${r.path}`.toLocaleLowerCase().includes(q));
+      list2.empty();
+      for (const record of matching) {
+        const row = list2.createEl("label", { cls: "vt-project-member" }), input = row.createEl("input", { type: "checkbox" });
+        input.checked = draft.recordIds.includes(record.id);
+        input.onchange = () => setMember(record.id, input.checked);
+        const info = row.createDiv();
+        info.createEl("strong", { text: record.title });
+        info.createEl("small", { text: `${record.type.replace("visual-timeline-", "")} \xB7 ${record.path}` });
+      }
+      if (!matching.length) list2.createEl("p", { cls: "vt-section-note", text: "No notes match. Create records from the timeline after saving." });
+      const known = new Set(this.records.map((r) => r.id)), missing = draft.recordIds.filter((key) => !known.has(key));
+      if (missing.length) {
+        const details = list2.createEl("details");
+        details.createEl("summary", { text: `${missing.length} unavailable note reference${missing.length === 1 ? "" : "s"} retained` });
+        details.createEl("p", { cls: "vt-section-note", text: "These IDs are preserved. Uncheck one only if you want to remove its membership." });
+        for (const key of missing) {
+          const row = details.createEl("label", { cls: "vt-project-member" }), input = row.createEl("input", { type: "checkbox" });
+          input.checked = true;
+          row.createSpan({ text: key });
+          input.onchange = () => {
+            setMember(key, input.checked);
+            drawMembers();
+          };
+        }
+      }
+      updateCount();
+    };
+    this.button(tools, "Include matching", () => {
+      matching.forEach((r) => setMember(r.id, true));
+      drawMembers();
+    });
+    this.button(tools, "Exclude matching", () => {
+      matching.forEach((r) => setMember(r.id, false));
+      drawMembers();
+    });
+    search.oninput = drawMembers;
+    drawMembers();
+    const error = c.createEl("p", { cls: "vt-project-error", attr: { role: "alert" } });
+    const footer = c.createDiv({ cls: "vt-editor-footer" });
+    const cancel = this.button(footer, "Cancel", () => this.close());
+    const save = this.button(footer, "Save timeline", () => void this.save(error, save, cancel));
+    save.addClass("mod-cta");
+  }
+  drawList(c) {
+    c.createEl("p", { cls: "vt-section-note", text: "Each timeline has its own notes and layouts. All records remains the complete library." });
+    this.button(c, "New timeline", () => {
+      this.start();
+      this.draw();
+    }).addClass("mod-cta");
+    for (const warning of this.catalog.warnings) c.createEl("p", { cls: "vt-project-error", text: warning });
+    if (!this.catalog.projects.length) c.createEl("p", { text: "No separate timelines yet. Create one to start a focused collection." });
+    for (const p of this.catalog.projects) {
+      const row = c.createDiv({ cls: "vt-project-row" }), info = row.createDiv();
+      info.createEl("strong", { text: p.name });
+      info.createEl("small", { text: `${p.recordIds.length} ${p.recordIds.length === 1 ? "note" : "notes"}${p.status === "archived" ? " \xB7 Archived" : ""}` });
+      if (p.description) info.createEl("p", { text: p.description });
+      const actions = row.createDiv({ cls: "vt-project-tools" });
+      if (p.status === "active") this.button(actions, "Open", () => void this.openProject(p));
+      this.button(actions, "Edit", () => {
+        this.start(p);
+        this.draw();
+      });
+      this.button(actions, "Open note", () => this.plugin.openNote(p.path));
+    }
+    const footer = c.createDiv({ cls: "vt-editor-footer" });
+    this.button(footer, "Close", () => this.close());
+  }
+  async openProject(p) {
+    if (this.busy) return;
+    this.busy = true;
+    try {
+      await this.plugin.setActiveTimeline(p.id);
+      this.close();
+    } catch (e) {
+      new import_obsidian4.Notice("Could not open timeline. Try again.");
+    } finally {
+      this.busy = false;
+    }
+  }
+  async save(error, save, cancel) {
+    if (this.busy || !this.draft) return;
+    this.busy = true;
+    error.textContent = "";
+    const controls = Array.from(this.contentEl.querySelectorAll("input,button,select,textarea"));
+    controls.forEach((el) => el.disabled = true);
+    try {
+      if (!this.committed) {
+        const sourceId = this.plugin.settings.activeTimeline || "", layout = this.copyLayout ? compositionForTimeline(this.plugin.settings, sourceId) : void 0;
+        const created = !this.editing, p = await this.plugin.projects.save(this.draft, this.editing);
+        this.editing = p;
+        this.committed = { project: p, created, layout, stage: layout ? "layout" : "activation", activeId: p.status === "active" ? p.id : sourceId === p.id ? "" : sourceId };
+      }
+      const pending = this.committed;
+      if (pending.stage === "layout") {
+        await this.plugin.saveComposition(pending.project.id, pending.layout);
+        pending.stage = "activation";
+      }
+      await this.plugin.setActiveTimeline(pending.activeId);
+      this.close();
+      new import_obsidian4.Notice(`Timeline ${pending.created ? "created" : "saved"}.`);
+    } catch (e) {
+      if (this.committed) {
+        const copying = this.committed.stage === "layout", step = copying ? "Copying the layouts" : "Opening the active timeline", recovery = copying ? "Close to keep the saved timeline without copying layouts." : "Close to keep the saved timeline and open it later through Manage timelines.";
+        error.textContent = `Timeline \u201C${this.committed.project.name}\u201D was saved, including its note membership. ${step} could not finish. Retry setup to complete only that step, or ${recovery}`;
+        save.textContent = "Retry setup";
+        cancel.textContent = "Close";
+      } else error.textContent = e instanceof Error ? e.message : "Could not save timeline. Try again.";
+    } finally {
+      this.busy = false;
+      controls.forEach((el) => el.disabled = !!this.committed);
+      save.disabled = false;
+      cancel.disabled = false;
+    }
+  }
+};
+
+// src/dashboard.ts
+var import_obsidian5 = require("obsidian");
 
 // src/layout.ts
 var refName = (s) => s.replace(/^\[\[|\]\]$/g, "").split("|")[0].replace(/\.md$/, "");
@@ -472,12 +761,12 @@ function layoutRow(row, records, bounds, width, styles) {
       const override = binding.overrides[p.record.id];
       const refs = override ? [override] : p.record.relations[binding.relationship] || [];
       const found = refs.map((ref) => resolveReference(ref, rs));
-      const unique = [...new Set(found.filter(Boolean))];
+      const unique2 = [...new Set(found.filter(Boolean))];
       const ambiguous = refs.some((ref) => {
         const v = refName(ref);
         return !resolveReference(ref, rs) && rs.filter((r) => r.id === v || r.path.replace(/\.md$/, "") === v || r.file.basename === v || (r.aliases || []).includes(v)).length > 1;
       });
-      const anchor = unique.length === 1 && !ambiguous ? peers.find((a) => a.record === unique[0]) : void 0;
+      const anchor = unique2.length === 1 && !ambiguous ? peers.find((a) => a.record === unique2[0]) : void 0;
       if (anchor) {
         p.anchor = anchor.record;
         p.anchorKey = anchor.key;
@@ -1118,13 +1407,15 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
 
 // src/dashboard.ts
 var VIEW = "visual-timeline-dashboard";
-var TimelineView = class extends import_obsidian3.ItemView {
+var TimelineView = class extends import_obsidian5.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
     this.query = "";
     this.layer = "";
     this.records = [];
+    this.projectScope = "";
+    this.generation = 0;
   }
   getViewType() {
     return VIEW;
@@ -1137,44 +1428,99 @@ var TimelineView = class extends import_obsidian3.ItemView {
   }
   async onClose() {
     var _a;
+    this.generation++;
     (_a = this.chart) == null ? void 0 : _a.destroy();
   }
   async render() {
-    var _a;
-    (_a = this.chart) == null ? void 0 : _a.destroy();
-    this.chart = void 0;
+    var _a, _b;
+    const generation = ++this.generation;
     const root = this.containerEl.children[1];
+    let catalog, all;
+    try {
+      [catalog, all] = await Promise.all([this.plugin.projects.all(), this.plugin.repository.all()]);
+    } catch (error) {
+      if (generation !== this.generation) return;
+      (_a = this.chart) == null ? void 0 : _a.destroy();
+      this.chart = void 0;
+      root.empty();
+      root.createEl("p", { text: `Could not load timelines: ${String(error)}`, attr: { role: "alert" } });
+      this.button(root, "Settings", () => this.plugin.openSettings());
+      this.button(root, "Retry", () => void this.render());
+      return;
+    }
+    if (generation !== this.generation) return;
+    const project2 = activeProject(this.plugin.settings, catalog), scope = (project2 == null ? void 0 : project2.id) || "";
+    if (scope !== this.projectScope) {
+      this.query = "";
+      this.layer = "";
+    }
+    this.projectScope = scope;
+    (_b = this.chart) == null ? void 0 : _b.destroy();
+    this.chart = void 0;
     root.empty();
     root.addClass("visual-timeline-dashboard");
-    this.records = await this.plugin.repository.all();
+    this.records = recordsForTimeline(all, project2);
     const hero = root.createDiv({ cls: "vt-hero" });
     hero.createEl("h1", { text: "Visual Timeline" });
     const actions = hero.createDiv({ cls: "vt-actions" });
-    this.button(actions, "New event", () => this.plugin.openNewEvent());
-    this.button(actions, "Configure timeline", () => void this.plugin.openComposition());
+    this.button(actions, "New event", () => void this.plugin.openNewEvent());
+    this.button(actions, "Configure layout", () => void this.plugin.openComposition());
     this.button(actions, "Refresh", () => void this.render());
     this.button(actions, "Settings", () => this.plugin.openSettings());
-    const controls = root.createDiv({ cls: "vt-controls" });
+    const switcher = root.createDiv({ cls: "vt-timeline-switcher" }), label = switcher.createEl("label", { cls: "vt-timeline-select" });
+    label.createSpan({ text: "Timeline" });
+    const timelines = label.createEl("select", { attr: { "aria-label": "Active timeline" } });
+    timelines.createEl("option", { text: "All records", value: "" });
+    const active = catalog.projects.filter((p) => p.status === "active");
+    for (const p of active) timelines.createEl("option", { text: active.filter((other) => other.name === p.name).length > 1 ? `${p.name} (${p.id})` : p.name, value: p.id });
+    timelines.value = scope;
+    timelines.onchange = () => {
+      timelines.disabled = true;
+      void this.plugin.setActiveTimeline(timelines.value).catch(() => {
+        timelines.value = scope;
+        timelines.disabled = false;
+        new import_obsidian5.Notice("Could not switch timeline. Refresh and try again.");
+      });
+    };
+    this.button(switcher, "New timeline", () => void this.plugin.openTimelineManager(true));
+    this.button(switcher, "Manage timelines", () => void this.plugin.openTimelineManager());
+    if (project2 == null ? void 0 : project2.description) root.createEl("p", { cls: "vt-timeline-description", text: project2.description });
+    if (this.plugin.settings.activeTimeline && !project2) root.createEl("p", { cls: "vt-project-error", text: "The selected timeline is unavailable or archived. Showing All records; choose another timeline above." });
+    if (catalog.warnings.length) {
+      const details = root.createEl("details", { cls: "vt-project-warnings" });
+      details.createEl("summary", { text: `${catalog.warnings.length} timeline workspace warning${catalog.warnings.length === 1 ? "" : "s"}` });
+      for (const warning of catalog.warnings) details.createEl("p", { text: warning });
+    }
+    if (project2) {
+      const ids = new Set(all.map((r) => r.id)), missing = project2.recordIds.filter((id2) => !ids.has(id2)).length;
+      if (missing) root.createEl("p", { cls: "vt-section-note", text: `${missing} included note reference${missing === 1 ? " is" : "s are"} unavailable. Manage timelines to review; references have been retained.` });
+    }
+    const controls = root.createDiv({ cls: "vt-controls" }), layoutLabel = controls.createEl("label", { cls: "vt-layout-select" });
+    layoutLabel.createSpan({ text: "Layout" });
+    const config = compositionForTimeline(this.plugin.settings, scope), views = layoutLabel.createEl("select", { attr: { "aria-label": "Saved layout" } });
+    config.views.forEach((v) => views.createEl("option", { text: v.name, value: v.id }));
+    views.value = config.active;
+    views.onchange = () => {
+      const previous = config.active;
+      config.active = views.value;
+      views.disabled = true;
+      void this.plugin.saveComposition(scope, config).then(() => {
+        if (generation === this.generation) {
+          views.disabled = false;
+          this.draw(root);
+        }
+      }).catch(() => {
+        config.active = previous;
+        views.value = previous;
+        views.disabled = false;
+        new import_obsidian5.Notice("Could not save selected layout.");
+      });
+    };
     const search = controls.createEl("input", { type: "search", placeholder: "Search names, events, tags, places\u2026", attr: { "aria-label": "Search timeline" } });
     search.value = this.query;
     search.oninput = () => {
       this.query = search.value;
       this.draw(root);
-    };
-    const config = normalizeComposition(this.plugin.settings.composition);
-    const views = controls.createEl("select", { attr: { "aria-label": "Saved composition" } });
-    config.views.forEach((v) => views.createEl("option", { text: v.name, value: v.id }));
-    views.value = config.active;
-    controls.insertBefore(views, search);
-    views.onchange = () => {
-      const old = config.active;
-      config.active = views.value;
-      this.plugin.settings.composition = config;
-      void this.plugin.saveSettings().then(() => this.draw(root)).catch(() => {
-        config.active = old;
-        views.value = old;
-        new import_obsidian3.Notice("Could not save selected view.");
-      });
     };
     const select = controls.createEl("select", { attr: { "aria-label": "Filter by note layer" } });
     select.createEl("option", { text: "All note layers", value: "" });
@@ -1184,34 +1530,36 @@ var TimelineView = class extends import_obsidian3.ItemView {
       this.layer = select.value;
       this.draw(root);
     };
+    if (!this.records.length) {
+      const empty = root.createDiv({ cls: "vt-project-empty" });
+      empty.createEl("h2", { text: project2 ? "This timeline is empty" : "No timeline records yet" });
+      empty.createEl("p", { text: project2 ? "Create a record here, or include existing notes through Manage timelines." : "Create your first event, kingdom, person, or era to start exploring." });
+      this.button(empty, "New event", () => void this.plugin.openNewEvent());
+      if (project2) this.button(empty, "Include existing notes", () => void this.plugin.openTimelineManager());
+      return;
+    }
     this.draw(root);
   }
   draw(root) {
     var _a, _b, _c;
-    const q = this.query.toLocaleLowerCase();
-    const records = this.records.filter((r) => (!q || `${r.title} ${r.tags.join(" ")} ${r.categories.join(" ")} ${r.locations.join(" ")} ${r.entities.join(" ")}`.toLocaleLowerCase().includes(q)) && (!this.layer || r.layers.includes(this.layer)));
-    const config = normalizeComposition(this.plugin.settings.composition), view = config.views.find((v) => v.id === config.active);
-    if (((_a = root.querySelector(".vt-body")) == null ? void 0 : _a.getAttribute("data-view")) !== view.id) {
+    if (!this.records.length) return;
+    const q = this.query.toLocaleLowerCase(), records = this.records.filter((r) => (!q || `${r.title} ${r.tags.join(" ")} ${r.categories.join(" ")} ${r.locations.join(" ")} ${r.entities.join(" ")}`.toLocaleLowerCase().includes(q)) && (!this.layer || r.layers.includes(this.layer)));
+    const scope = this.projectScope, config = compositionForTimeline(this.plugin.settings, scope), view = config.views.find((v) => v.id === config.active);
+    const key = `${scope}:${view.id}`;
+    if (((_a = root.querySelector(".vt-body")) == null ? void 0 : _a.getAttribute("data-view")) !== key) {
       (_b = this.chart) == null ? void 0 : _b.destroy();
       root.querySelectorAll(".vt-body").forEach((el) => el.remove());
-      const body = root.createDiv({ cls: "vt-body", attr: { "data-view": view.id } });
+      const body = root.createDiv({ cls: "vt-body", attr: { "data-view": key } });
       body.createDiv({ cls: "vt-range" });
       this.chart = renderComposition(body, view, config, this.records, rangeOf(this.records), (p) => this.plugin.openNote(p), 1, async (updated) => {
-        var _a2;
-        const saved = (_a2 = this.plugin.settings.composition) == null ? void 0 : _a2.views.find((v) => v.id === updated.id);
-        if (!saved) throw new Error("Saved view unavailable");
-        const previous = saved.yearGrid;
+        const current = compositionForTimeline(this.plugin.settings, scope), saved = current.views.find((v) => v.id === updated.id);
+        if (!saved) throw new Error("Saved layout unavailable");
         saved.yearGrid = updated.yearGrid;
-        try {
-          await this.plugin.saveSettings();
-        } catch (error) {
-          saved.yearGrid = previous;
-          throw error;
-        }
+        await this.plugin.saveComposition(scope, current);
       }, root.querySelector(".vt-controls"));
     }
-    const status = root.querySelector(".vt-range");
-    if (status) status.textContent = `${records.length} matching notes \xB7 ${view.rows.filter((r) => r.enabled).length} ${view.rows.filter((r) => r.enabled).length === 1 ? "row" : "rows"}`;
+    const status = root.querySelector(".vt-range"), rows = view.rows.filter((r) => r.enabled).length;
+    if (status) status.textContent = `${records.length} matching notes \xB7 ${rows} ${rows === 1 ? "row" : "rows"}`;
     (_c = this.chart) == null ? void 0 : _c.setVisible(new Set(records.map((r) => r.id)));
   }
   button(parent, label, action) {
@@ -1221,11 +1569,12 @@ var TimelineView = class extends import_obsidian3.ItemView {
 };
 
 // src/modals.ts
-var import_obsidian4 = require("obsidian");
-var NewEventModal = class extends import_obsidian4.Modal {
-  constructor(app, plugin) {
+var import_obsidian6 = require("obsidian");
+var NewEventModal = class extends import_obsidian6.Modal {
+  constructor(app, plugin, catalog) {
     super(app);
     this.plugin = plugin;
+    this.catalog = catalog;
     this.title = "";
     this.start = "";
     this.display = "";
@@ -1233,35 +1582,69 @@ var NewEventModal = class extends import_obsidian4.Modal {
     this.layer = "general";
     this.category = "event";
     this.circa = false;
+    this.timeline = "";
+    this.busy = false;
+    this.timeline = catalog.projects.some((p) => p.id === plugin.settings.activeTimeline && p.status === "active") ? plugin.settings.activeTimeline : "";
   }
   onOpen() {
+    this.modalEl.addClass("vt-project-modal");
     this.contentEl.empty();
     this.contentEl.addClass("vt-modal");
-    this.contentEl.createEl("h2", { text: "New timeline record" });
-    new import_obsidian4.Setting(this.contentEl).setName("Title").addText((t) => t.setValue(this.title).onChange((v) => this.title = v));
-    new import_obsidian4.Setting(this.contentEl).setName("Record type").addDropdown((d) => {
-      for (const type of ["visual-timeline-event", "visual-timeline-kingdom", "visual-timeline-era", "visual-timeline-period", "visual-timeline-place", "visual-timeline-person", "visual-timeline-culture"]) d.addOption(type, type.replace("visual-timeline-", ""));
+    this.contentEl.scrollTop = 0;
+    const c = this.contentEl;
+    c.createEl("h2", { text: "New timeline record" });
+    new import_obsidian6.Setting(c).setName("Timeline").setDesc("Assign the new record to a timeline. It always remains available in All records.").addDropdown((d) => {
+      d.addOption("", "All records only");
+      for (const p of this.catalog.projects.filter((p2) => p2.status === "active")) d.addOption(p.id, p.name);
+      d.setValue(this.timeline).onChange((v) => this.timeline = v);
+    });
+    new import_obsidian6.Setting(c).setName("Title").addText((t) => t.setValue(this.title).onChange((v) => this.title = v));
+    new import_obsidian6.Setting(c).setName("Record type").addDropdown((d) => {
+      for (const type of RECORD_TYPES) d.addOption(type, type.replace("visual-timeline-", ""));
       d.setValue(this.type).onChange((v) => this.type = v);
     });
-    new import_obsidian4.Setting(this.contentEl).setName("Start date").setDesc("AD ISO date or a BC year such as 930 BC").addText((t) => t.setValue(this.start).onChange((v) => this.start = v));
-    new import_obsidian4.Setting(this.contentEl).setName("Display date").addText((t) => t.setValue(this.display).onChange((v) => this.display = v));
-    new import_obsidian4.Setting(this.contentEl).setName("Layer").addText((t) => t.setValue(this.layer).onChange((v) => this.layer = v));
-    new import_obsidian4.Setting(this.contentEl).setName("Category").addText((t) => t.setValue(this.category).onChange((v) => this.category = v));
-    new import_obsidian4.Setting(this.contentEl).setName("Circa").addToggle((t) => t.setValue(this.circa).onChange((v) => this.circa = v));
-    const actions = this.contentEl.createDiv({ cls: "vt-modal-actions" });
+    new import_obsidian6.Setting(c).setName("Start date").setDesc("AD ISO date or a BC year such as 930 BC").addText((t) => t.setValue(this.start).onChange((v) => this.start = v));
+    new import_obsidian6.Setting(c).setName("Display date").addText((t) => t.setValue(this.display).onChange((v) => this.display = v));
+    new import_obsidian6.Setting(c).setName("Layer").addText((t) => t.setValue(this.layer).onChange((v) => this.layer = v));
+    new import_obsidian6.Setting(c).setName("Category").addText((t) => t.setValue(this.category).onChange((v) => this.category = v));
+    new import_obsidian6.Setting(c).setName("Circa").addToggle((t) => t.setValue(this.circa).onChange((v) => this.circa = v));
+    const error = c.createEl("p", { cls: "vt-project-error", attr: { role: "alert" } }), actions = c.createDiv({ cls: "vt-editor-footer" });
     const cancel = actions.createEl("button", { text: "Cancel" });
     cancel.onclick = () => this.close();
-    const save = actions.createEl("button", { text: "Create", cls: "mod-cta" });
+    const save = actions.createEl("button", { text: "Create record", cls: "mod-cta" });
     save.onclick = async () => {
-      if (!this.title.trim() || !this.start.trim()) {
-        new import_obsidian4.Notice("Title and start date are required.");
+      if (this.busy) return;
+      if (!this.title.trim() || !Number.isFinite(dateValue(this.start.trim()))) {
+        error.textContent = "Enter a title and valid start date.";
         return;
       }
-      const date = { start: this.start.trim(), precision: /^\d{4}-\d{2}-\d{2}$/.test(this.start.trim()) ? "day" : "year", circa: this.circa, display: this.display.trim() || this.start.trim() };
-      await this.plugin.repository.createEvent({ title: this.title.trim(), type: this.type, date, tags: ["timeline"], layers: [this.layer.trim() || "general"], categories: [this.category.trim() || "event"], locations: [], entities: [] });
-      new import_obsidian4.Notice("Timeline record created.");
-      this.close();
-      await this.plugin.refreshViews();
+      this.busy = true;
+      save.disabled = true;
+      cancel.disabled = true;
+      error.textContent = "";
+      try {
+        const date = { start: this.start.trim(), precision: /^\d{4}-\d{2}-\d{2}$/.test(this.start.trim()) ? "day" : "year", circa: this.circa, display: this.display.trim() || this.start.trim() };
+        const created = await this.plugin.repository.createEventRecord({ title: this.title.trim(), type: this.type, date, tags: ["timeline"], layers: [this.layer.trim() || "general"], categories: [this.category.trim() || "event"], locations: [], entities: [] });
+        if (this.timeline) {
+          try {
+            await this.plugin.projects.addRecord(this.timeline, created.id);
+          } catch (e) {
+            new import_obsidian6.Notice("Record created in All records, but timeline assignment failed. Add it through Manage timelines.");
+            this.close();
+            await this.plugin.refreshViews();
+            return;
+          }
+        }
+        this.close();
+        new import_obsidian6.Notice("Timeline record created.");
+        await this.plugin.refreshViews();
+      } catch (e) {
+        error.textContent = e instanceof Error ? e.message : "Could not create the record.";
+      } finally {
+        this.busy = false;
+        save.disabled = false;
+        cancel.disabled = false;
+      }
     };
   }
   onClose() {
@@ -1297,13 +1680,14 @@ var registerDashboardModule = (app, d) => register(app, "registerModule", d);
 var registerDashboardWidget = (app, d) => register(app, "registerWidget", d);
 
 // src/composition-modal.ts
-var import_obsidian5 = require("obsidian");
-var CompositionModal = class extends import_obsidian5.Modal {
-  constructor(plugin, records) {
+var import_obsidian7 = require("obsidian");
+var CompositionModal = class extends import_obsidian7.Modal {
+  constructor(plugin, records, projectId = "") {
     super(plugin.app);
     this.plugin = plugin;
     this.records = records;
-    this.draft = normalizeComposition(JSON.parse(JSON.stringify(plugin.settings.composition)));
+    this.projectId = projectId;
+    this.draft = compositionForTimeline(plugin.settings, projectId);
   }
   onOpen() {
     this.modalEl.addClass("vt-composition-modal");
@@ -1319,18 +1703,18 @@ var CompositionModal = class extends import_obsidian5.Modal {
     const c = this.contentEl;
     c.empty();
     c.addClass("vt-composition-editor");
-    c.createEl("h2", { text: "Configure timeline" });
+    c.createEl("h2", { text: "Configure layout" });
     c.createEl("p", { cls: "vt-section-note", text: "Rows share a date scale. Layers overlay within a row. Changes apply only when you save; historical notes are never changed." });
     const view = this.draft.views.find((v) => v.id === this.draft.active);
-    new import_obsidian5.Setting(c).setName("Saved view").addDropdown((d) => {
+    new import_obsidian7.Setting(c).setName("Saved view").addDropdown((d) => {
       for (const v of this.draft.views) d.addOption(v.id, v.name);
       d.setValue(view.id).onChange((id2) => {
         this.draft.active = id2;
         this.draw();
       });
     });
-    new import_obsidian5.Setting(c).setName("View name").addText((t) => t.setValue(view.name).onChange((v) => view.name = v));
-    new import_obsidian5.Setting(c).setName("Full-height year lines").setDesc("Extend the date ruler ticks vertically behind every row. Saved separately for each view.").addToggle((t) => t.setValue(view.yearGrid === true).onChange((v) => view.yearGrid = v));
+    new import_obsidian7.Setting(c).setName("View name").addText((t) => t.setValue(view.name).onChange((v) => view.name = v));
+    new import_obsidian7.Setting(c).setName("Full-height year lines").setDesc("Extend the date ruler ticks vertically behind every row. Saved separately for each view.").addToggle((t) => t.setValue(view.yearGrid === true).onChange((v) => view.yearGrid = v));
     const viewActions = c.createDiv({ cls: "vt-editor-actions" });
     this.button(viewActions, "New view", () => {
       const v = { id: uid(), name: "New view", rows: [newRow()] };
@@ -1359,8 +1743,8 @@ var CompositionModal = class extends import_obsidian5.Modal {
         view.rows.splice(index, 1);
         this.draw();
       });
-      new import_obsidian5.Setting(section).setName("Row name").addText((t) => t.setValue(row.name).onChange((v) => row.name = v));
-      new import_obsidian5.Setting(section).setName("Position").setDesc("1 is the first row. Changing the number shifts the other rows.").addText((t) => {
+      new import_obsidian7.Setting(section).setName("Row name").addText((t) => t.setValue(row.name).onChange((v) => row.name = v));
+      new import_obsidian7.Setting(section).setName("Position").setDesc("1 is the first row. Changing the number shifts the other rows.").addText((t) => {
         t.inputEl.type = "number";
         t.inputEl.min = "1";
         t.inputEl.max = String(view.rows.length);
@@ -1370,26 +1754,26 @@ var CompositionModal = class extends import_obsidian5.Modal {
           this.draw();
         };
       });
-      new import_obsidian5.Setting(section).setName("Minimum height").setDesc("CSS pixels, independent of zoom. Only historical lanes add height, never labels.").addText((t) => {
+      new import_obsidian7.Setting(section).setName("Minimum height").setDesc("CSS pixels, independent of zoom. Only historical lanes add height, never labels.").addText((t) => {
         t.inputEl.type = "number";
         t.inputEl.min = "120";
         t.inputEl.max = "1200";
         t.setValue(String(row.height)).onChange((v) => row.height = Math.max(120, Math.min(1200, Number(v) || 220)));
       });
-      new import_obsidian5.Setting(section).setName("Visible overlap tracks").setDesc("Additional overlaps become selectable count markers.").addDropdown((d) => {
+      new import_obsidian7.Setting(section).setName("Visible overlap tracks").setDesc("Additional overlaps become selectable count markers.").addDropdown((d) => {
         [1, 2, 3, 4, 5, 6].forEach((n) => d.addOption(String(n), String(n)));
         d.setValue(String(row.maxSubtracks || 3)).onChange((v) => row.maxSubtracks = Number(v));
       });
       const order = section.createEl("details");
       order.createEl("summary", { text: "Anchor ordering" });
-      new import_obsidian5.Setting(order).setName("Anchor IDs in preferred order").setDesc("Comma-separated stable IDs; unspecified anchors use date and ID order.").addText((t) => t.setValue((row.anchorOrder || []).join(", ")).onChange((v) => row.anchorOrder = v.split(",").map((s) => s.trim()).filter(Boolean)));
-      new import_obsidian5.Setting(section).setName("Show row").addToggle((t) => t.setValue(row.enabled).onChange((v) => row.enabled = v));
+      new import_obsidian7.Setting(order).setName("Anchor IDs in preferred order").setDesc("Comma-separated stable IDs; unspecified anchors use date and ID order.").addText((t) => t.setValue((row.anchorOrder || []).join(", ")).onChange((v) => row.anchorOrder = v.split(",").map((s) => s.trim()).filter(Boolean)));
+      new import_obsidian7.Setting(section).setName("Show row").addToggle((t) => t.setValue(row.enabled).onChange((v) => row.enabled = v));
       row.layers.forEach((layer, i) => {
         const details = section.createEl("details", { cls: "vt-layer-editor" });
         details.createEl("summary", { text: `${i + 1}. ${layer.name} \xB7 ${layer.plane} \xB7 ${layer.style}` });
-        new import_obsidian5.Setting(details).setName("Layer name").addText((t) => t.setValue(layer.name).onChange((v) => layer.name = v));
-        new import_obsidian5.Setting(details).setName("Show layer").addToggle((t) => t.setValue(layer.enabled).onChange((v) => layer.enabled = v));
-        new import_obsidian5.Setting(details).setName("Position within plane").setDesc("Layers later in the list draw on top. Backgrounds always stay behind foregrounds.").addText((t) => {
+        new import_obsidian7.Setting(details).setName("Layer name").addText((t) => t.setValue(layer.name).onChange((v) => layer.name = v));
+        new import_obsidian7.Setting(details).setName("Show layer").addToggle((t) => t.setValue(layer.enabled).onChange((v) => layer.enabled = v));
+        new import_obsidian7.Setting(details).setName("Position within plane").setDesc("Layers later in the list draw on top. Backgrounds always stay behind foregrounds.").addText((t) => {
           t.inputEl.type = "number";
           t.inputEl.min = "1";
           t.inputEl.max = String(row.layers.length);
@@ -1399,7 +1783,7 @@ var CompositionModal = class extends import_obsidian5.Modal {
             this.draw();
           };
         });
-        new import_obsidian5.Setting(details).setName("Move to row").addDropdown((d) => {
+        new import_obsidian7.Setting(details).setName("Move to row").addDropdown((d) => {
           view.rows.forEach((r) => d.addOption(r.id, r.name));
           d.setValue(row.id).onChange((id2) => {
             const destination = view.rows.find((r) => r.id === id2);
@@ -1411,7 +1795,7 @@ var CompositionModal = class extends import_obsidian5.Modal {
           });
         });
         this.filters(details, layer);
-        new import_obsidian5.Setting(details).setName("Attach to anchor layer").setDesc("Follow explicit relationships to records in another layer of this row. No name-based guessing.").addDropdown((d) => {
+        new import_obsidian7.Setting(details).setName("Attach to anchor layer").setDesc("Follow explicit relationships to records in another layer of this row. No name-based guessing.").addDropdown((d) => {
           var _a;
           d.addOption("", "Independent");
           for (const l of row.layers.filter((l2) => l2 !== layer && !l2.attachment)) d.addOption(l.id, l.name);
@@ -1424,14 +1808,14 @@ var CompositionModal = class extends import_obsidian5.Modal {
         if (layer.attachment) {
           const a = layer.attachment, anchor = row.layers.find((l) => l.id === a.anchorLayer);
           if (!anchor || !anchor.enabled) details.createEl("p", { text: "Warning: the anchor layer is unavailable. Records will appear in Unassigned." });
-          new import_obsidian5.Setting(details).setName("Relationship field").addDropdown((d) => {
+          new import_obsidian7.Setting(details).setName("Relationship field").addDropdown((d) => {
             Object.entries(this.plugin.settings.relationshipLabels).forEach(([k, v]) => d.addOption(k, v));
             d.setValue(a.relationship).onChange((v) => a.relationship = v);
           });
           const overrides = details.createEl("details");
           overrides.createEl("summary", { text: "Explicit anchor overrides" });
           overrides.createEl("p", { cls: "vt-section-note", text: "Overrides affect this display only. Notes are never rewritten." });
-          for (const record of this.records.filter((r) => matches(r, layer))) new import_obsidian5.Setting(overrides).setName(record.title).addDropdown((d) => {
+          for (const record of this.records.filter((r) => matches(r, layer))) new import_obsidian7.Setting(overrides).setName(record.title).addDropdown((d) => {
             d.addOption("", "Use note relationship");
             if (a.overrides[record.id]) d.addOption(a.overrides[record.id], a.overrides[record.id]);
             for (const r of this.records.filter((r2) => anchor && matches(r2, anchor))) d.addOption(r.id, r.title);
@@ -1441,15 +1825,15 @@ var CompositionModal = class extends import_obsidian5.Modal {
             });
           });
         }
-        new import_obsidian5.Setting(details).setName("Display style").addDropdown((d) => {
+        new import_obsidian7.Setting(details).setName("Display style").addDropdown((d) => {
           d.addOption("default", "Category default");
           STYLES.forEach((s) => d.addOption(s, s === "box" ? "Box / duration bar" : s[0].toUpperCase() + s.slice(1)));
           d.setValue(layer.style).onChange((v) => layer.style = v);
         });
-        new import_obsidian5.Setting(details).setName("Placement").addDropdown((d) => d.addOption("background", "Background").addOption("foreground", "Foreground").setValue(layer.plane).onChange((v) => layer.plane = v));
-        new import_obsidian5.Setting(details).setName("Band layout").setDesc("Integrated categories share their related streams\u2019 centerlines. Their own dates set the box boundaries; kingdom and ruler dates never change.").addDropdown((d) => d.addOption("integrated", "Integrated with related streams").addOption("context", "Separate context strip").addOption("lane", "Behind the assigned lane").setValue(layer.bandPlacement || "context").onChange((v) => layer.bandPlacement = v));
-        new import_obsidian5.Setting(details).setName("Integrated category shape").setDesc("A category box extends above and below the stream. Stream tint keeps the earlier contour-following treatment. Applies to integrated bands.").addDropdown((d) => d.addOption("box", "Category box \u2014 taller than stream").addOption("contour", "Stream tint and continuation").setValue(layer.bandShape || "box").onChange((v) => layer.bandShape = v));
-        new import_obsidian5.Setting(details).setName("Shape height (px)").setDesc("Leave blank for automatic: category 88, stream 40, item 14, context strip 32. Category boxes always leave at least 12px above and below their stream. Height never changes dates or zoom.").addText((t) => {
+        new import_obsidian7.Setting(details).setName("Placement").addDropdown((d) => d.addOption("background", "Background").addOption("foreground", "Foreground").setValue(layer.plane).onChange((v) => layer.plane = v));
+        new import_obsidian7.Setting(details).setName("Band layout").setDesc("Integrated categories share their related streams\u2019 centerlines. Their own dates set the box boundaries; kingdom and ruler dates never change.").addDropdown((d) => d.addOption("integrated", "Integrated with related streams").addOption("context", "Separate context strip").addOption("lane", "Behind the assigned lane").setValue(layer.bandPlacement || "context").onChange((v) => layer.bandPlacement = v));
+        new import_obsidian7.Setting(details).setName("Integrated category shape").setDesc("A category box extends above and below the stream. Stream tint keeps the earlier contour-following treatment. Applies to integrated bands.").addDropdown((d) => d.addOption("box", "Category box \u2014 taller than stream").addOption("contour", "Stream tint and continuation").setValue(layer.bandShape || "box").onChange((v) => layer.bandShape = v));
+        new import_obsidian7.Setting(details).setName("Shape height (px)").setDesc("Leave blank for automatic: category 88, stream 40, item 14, context strip 32. Category boxes always leave at least 12px above and below their stream. Height never changes dates or zoom.").addText((t) => {
           t.inputEl.type = "number";
           t.inputEl.min = "8";
           t.inputEl.max = "240";
@@ -1459,10 +1843,10 @@ var CompositionModal = class extends import_obsidian5.Modal {
             else if (Number.isFinite(Number(v))) layer.height = Math.max(8, Math.min(240, Number(v)));
           });
         });
-        new import_obsidian5.Setting(details).setName("Tint streams from attached durations").setDesc("When every attached duration uses one color, use it for that anchor stream too. Mixed colors retain the stream layer color.").addToggle((t) => t.setValue(layer.tintFromAttached === true).onChange((v) => layer.tintFromAttached = v));
-        new import_obsidian5.Setting(details).setName("Opacity").addSlider((s) => s.setLimits(10, 100, 5).setValue(layer.opacity * 100).setDynamicTooltip().onChange((v) => layer.opacity = v / 100));
-        new import_obsidian5.Setting(details).setName("Color").addColorPicker((p) => p.setValue(layer.color).onChange((v) => layer.color = v));
-        new import_obsidian5.Setting(details).setName("Labels").setDesc("Names use aligned rails and may truncate in dense periods. Labels never move records. Full names remain in details.").addDropdown((d) => d.addOption("adaptive", "Adaptive: aligned name rails").addOption("always", "Prefer visible names").addOption("selection", "On hover or keyboard focus").addOption("hidden", "Hidden (details remain)").setValue(layer.labels).onChange((v) => layer.labels = v));
+        new import_obsidian7.Setting(details).setName("Tint streams from attached durations").setDesc("When every attached duration uses one color, use it for that anchor stream too. Mixed colors retain the stream layer color.").addToggle((t) => t.setValue(layer.tintFromAttached === true).onChange((v) => layer.tintFromAttached = v));
+        new import_obsidian7.Setting(details).setName("Opacity").addSlider((s) => s.setLimits(10, 100, 5).setValue(layer.opacity * 100).setDynamicTooltip().onChange((v) => layer.opacity = v / 100));
+        new import_obsidian7.Setting(details).setName("Color").addColorPicker((p) => p.setValue(layer.color).onChange((v) => layer.color = v));
+        new import_obsidian7.Setting(details).setName("Labels").setDesc("Names use aligned rails and may truncate in dense periods. Labels never move records. Full names remain in details.").addDropdown((d) => d.addOption("adaptive", "Adaptive: aligned name rails").addOption("always", "Prefer visible names").addOption("selection", "On hover or keyboard focus").addOption("hidden", "Hidden (details remain)").setValue(layer.labels).onChange((v) => layer.labels = v));
         this.button(details, "Remove layer", () => {
           row.layers.splice(i, 1);
           this.draw();
@@ -1481,7 +1865,7 @@ var CompositionModal = class extends import_obsidian5.Modal {
     defaults2.createEl("summary", { text: "Category display defaults" });
     defaults2.createEl("p", { cls: "vt-section-note", text: "Used by layers set to Category default. For records with several categories, the first configured category wins; the note type is the fallback." });
     const categories = [.../* @__PURE__ */ new Set([...this.plugin.settings.categories, ...this.records.flatMap((r) => r.categories), ...RECORD_TYPES.map((t) => t.replace("visual-timeline-", "")), ...Object.keys(this.draft.categoryStyles)])].sort();
-    for (const category of categories) new import_obsidian5.Setting(defaults2).setName(category).addDropdown((d) => {
+    for (const category of categories) new import_obsidian7.Setting(defaults2).setName(category).addDropdown((d) => {
       d.addOption("", "Automatic (box)");
       STYLES.forEach((s) => d.addOption(s, s));
       d.setValue(this.draft.categoryStyles[category] || "").onChange((v) => {
@@ -1513,26 +1897,23 @@ var CompositionModal = class extends import_obsidian5.Modal {
     }
   }
   async save() {
-    const previous = this.plugin.settings.composition;
     try {
-      this.plugin.settings.composition = normalizeComposition(this.draft);
-      await this.plugin.saveSettings();
+      await this.plugin.saveComposition(this.projectId, normalizeComposition(this.draft));
     } catch (error) {
-      this.plugin.settings.composition = previous;
-      new import_obsidian5.Notice(`Could not save composition: ${String(error)}`);
+      new import_obsidian7.Notice(`Could not save composition: ${String(error)}`);
       return;
     }
     this.close();
     try {
       await this.plugin.refreshViews();
     } catch (e) {
-      new import_obsidian5.Notice("Composition saved. Reopen the timeline to refresh the view.");
+      new import_obsidian7.Notice("Composition saved. Reopen the timeline to refresh the view.");
     }
   }
 };
 
 // src/main.ts
-var VisualTimeline = class extends import_obsidian6.Plugin {
+var VisualTimeline = class extends import_obsidian8.Plugin {
   constructor() {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
@@ -1541,24 +1922,31 @@ var VisualTimeline = class extends import_obsidian6.Plugin {
   }
   async onload() {
     const stored = await this.loadData();
-    this.settings = { ...DEFAULT_SETTINGS, ...stored || {}, relationshipLabels: { ...DEFAULT_SETTINGS.relationshipLabels, ...(stored == null ? void 0 : stored.relationshipLabels) || {} }, layers: Array.isArray(stored == null ? void 0 : stored.layers) ? stored.layers : DEFAULT_SETTINGS.layers, categories: Array.isArray(stored == null ? void 0 : stored.categories) ? stored.categories : DEFAULT_SETTINGS.categories };
+    this.settings = { ...DEFAULT_SETTINGS, ...stored || {}, settingsVersion: 2, relationshipLabels: { ...DEFAULT_SETTINGS.relationshipLabels, ...(stored == null ? void 0 : stored.relationshipLabels) || {} }, layers: Array.isArray(stored == null ? void 0 : stored.layers) ? stored.layers : DEFAULT_SETTINGS.layers, categories: Array.isArray(stored == null ? void 0 : stored.categories) ? stored.categories : DEFAULT_SETTINGS.categories };
     this.settings.composition = normalizeComposition(this.settings.composition);
-    this.addCommand({ id: "configure-timeline", name: "Configure timeline rows and layers", callback: () => void this.openComposition() });
+    if (!this.settings.timelineLayouts || typeof this.settings.timelineLayouts !== "object" || Array.isArray(this.settings.timelineLayouts)) this.settings.timelineLayouts = {};
     this.repository = new TimelineRepository(this.app, this.settings);
+    this.projects = new TimelineProjectRepository(this.app, this.settings);
     this.registerView(VIEW, (leaf) => new TimelineView(leaf, this));
     this.addSettingTab(new TimelineSettingsTab(this.app, this));
+    this.addCommand({ id: "configure-timeline", name: "Configure timeline rows and layers", callback: () => void this.openComposition() });
     this.addCommand({ id: "open-dashboard", name: "Open Visual Timeline", callback: () => void this.openDashboard() });
     this.addCommand({ id: "open-timeline", name: "Open timeline", callback: () => void this.openDashboard() });
-    this.addCommand({ id: "new-event", name: "New timeline event", callback: () => this.openNewEvent() });
-    this.addCommand({ id: "refresh", name: "Refresh timeline", callback: () => this.refreshViews() });
+    this.addCommand({ id: "new-timeline", name: "New timeline", callback: () => void this.openTimelineManager(true) });
+    this.addCommand({ id: "manage-timelines", name: "Manage timelines", callback: () => void this.openTimelineManager() });
+    this.addCommand({ id: "new-event", name: "New timeline event", callback: () => void this.openNewEvent() });
+    this.addCommand({ id: "refresh", name: "Refresh timeline", callback: () => void this.refreshViews() });
     this.addCommand({ id: "manage-layers", name: "Manage timeline layers", callback: () => this.openSettings() });
     this.addCommand({ id: "manage-categories", name: "Manage timeline categories", callback: () => this.openSettings() });
-    this.addCommand({ id: "open-settings", name: "Open Visual Timeline settings", callback: () => void this.openSettings() });
+    this.addCommand({ id: "open-settings", name: "Open Visual Timeline settings", callback: () => this.openSettings() });
     this.registerDashboardIntegration();
     this.registerEvent(this.app.vault.on("create", () => void this.refreshViews()));
     this.registerEvent(this.app.vault.on("modify", (file) => {
       if (file.path.endsWith(".md")) void this.refreshViews();
     }));
+    this.registerEvent(this.app.vault.on("rename", () => void this.refreshViews()));
+    this.registerEvent(this.app.vault.on("delete", () => void this.refreshViews()));
+    this.registerEvent(this.app.metadataCache.on("changed", () => void this.refreshViews()));
     if (this.settings.startup) this.app.workspace.onLayoutReady(() => void this.openDashboard());
   }
   onunload() {
@@ -1568,6 +1956,30 @@ var VisualTimeline = class extends import_obsidian6.Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
   }
+  async saveComposition(projectId, config) {
+    const previous = this.settings.composition, layouts = this.settings.timelineLayouts;
+    if (projectId) this.settings.timelineLayouts = { ...layouts, [projectId]: normalizeComposition(config) };
+    else this.settings.composition = normalizeComposition(config);
+    try {
+      await this.saveSettings();
+    } catch (error) {
+      this.settings.composition = previous;
+      this.settings.timelineLayouts = layouts;
+      throw error;
+    }
+  }
+  async setActiveTimeline(projectId) {
+    if (projectId && !(await this.projects.all()).projects.some((p) => p.id === projectId && p.status === "active")) throw new Error("Timeline is unavailable or archived.");
+    const previous = this.settings.activeTimeline;
+    this.settings.activeTimeline = projectId;
+    try {
+      await this.saveSettings();
+    } catch (error) {
+      this.settings.activeTimeline = previous;
+      throw error;
+    }
+    await this.refreshViews();
+  }
   openSettings() {
     var _a, _b;
     (_b = (_a = this.app.setting) == null ? void 0 : _a.open) == null ? void 0 : _b.call(_a);
@@ -1576,22 +1988,36 @@ var VisualTimeline = class extends import_obsidian6.Plugin {
     const file = this.app.vault.getAbstractFileByPath(path);
     if (file) this.app.workspace.getLeaf(false).openFile(file);
   }
-  openNewEvent() {
-    new NewEventModal(this.app, this).open();
+  async openNewEvent() {
+    try {
+      new NewEventModal(this.app, this, await this.projects.all()).open();
+    } catch (error) {
+      new import_obsidian8.Notice(`Could not load timelines: ${String(error)}`);
+    }
+  }
+  async openTimelineManager(create = false) {
+    try {
+      const [catalog, records] = await Promise.all([this.projects.all(), this.repository.all()]);
+      new TimelineManagerModal(this, catalog, records, create).open();
+    } catch (error) {
+      new import_obsidian8.Notice(`Could not load timelines: ${String(error)}`);
+    }
   }
   async openComposition() {
-    new CompositionModal(this, await this.repository.all()).open();
+    try {
+      const [catalog, records] = await Promise.all([this.projects.all(), this.repository.all()]), project2 = activeProject(this.settings, catalog);
+      new CompositionModal(this, recordsForTimeline(records, project2), (project2 == null ? void 0 : project2.id) || "").open();
+    } catch (error) {
+      new import_obsidian8.Notice(`Could not open layouts: ${String(error)}`);
+    }
   }
   async openDashboard() {
-    const existing = this.app.workspace.getLeavesOfType(VIEW)[0];
-    const leaf = existing || this.app.workspace.getLeaf(true);
+    const existing = this.app.workspace.getLeavesOfType(VIEW)[0], leaf = existing || this.app.workspace.getLeaf(true);
     await leaf.setViewState({ type: VIEW, active: true });
     this.app.workspace.revealLeaf(leaf);
   }
   async refreshViews() {
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) {
-      if (leaf.view instanceof TimelineView) await leaf.view.render();
-    }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) if (leaf.view instanceof TimelineView) await leaf.view.render();
   }
   registerDashboardIntegration() {
     this.moduleDispose = registerDashboardModule(this.app, { id: "visual-timeline", name: "Visual Timeline", command: "visual-timeline:open-dashboard", icon: "timeline", description: "Searchable historical streams, eras, and explicit branches.", order: 75 });
