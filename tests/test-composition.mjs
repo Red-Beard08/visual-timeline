@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 async function module(path){const out=await build({entryPoints:[path],bundle:true,write:false,format:'esm'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));}
 const {defaults,normalizeComposition,newLayer,newRow,reorder,matches,styleFor,contrastText}=await module('src/composition.ts');
-const {layoutRow,resolveReference,placeLabels,centerAt,curvePath,ribbonPath,integratedBandSegments,categoryHalf}=await module('src/layout.ts');
+const {layoutRow,resolveReference,placeLabels,centerAt,curvePath,ribbonPath,integratedBandSegments,categoryHalf,isInstantItem,diamondPath}=await module('src/layout.ts');
 const {historicalDate,formatTime,timeTicks}=await module('src/dates.ts');
 const {relations}=await module('src/utils.ts');
 assert.equal(historicalDate('930 BC'),-929);assert.equal(historicalDate('1 BC'),0);assert.equal(historicalDate('AD 1'),1);
@@ -148,3 +148,28 @@ customized.views[0].rows[0].layers[0].height=Infinity;assert.equal(normalizeComp
 customized.views[0].rows[0].layers[0].height=900;assert.equal(normalizeComposition(customized).views[0].rows[0].layers[0].height,240);
 customized.views[0].rows[0].layers[0].height=1;assert.equal(normalizeComposition(customized).views[0].rows[0].layers[0].height,8);
 console.log('Validated independent category/stream/item heights, shared centerlines, category dates, zoom invariance, custom bounds and optional contour compatibility.');
+// Instant markers are symbols, not duration reservations or shifted dates.
+const pointA=record('Point A','person','753 BC','753 BC',{related_to:['B']}),pointB=record('Point B','person','752 BC','752 BC',{related_to:['B']});
+const nextRuler=record('Next ruler','person','752 BC','742 BC',{related_to:['B']});
+const pointRecords=[a,b,c,pointA,pointB,nextRuler],pointSnapshot=JSON.stringify(pointRecords);
+const points=layoutRow(row,pointRecords,bounds,1000,{});
+const pa=get(points,'Point A'),pb=get(points,'Point B');
+assert.ok(isInstantItem(pa)&&isInstantItem(pb));assert.equal(pa.x,pa.xEnd);assert.equal(pb.x,pb.xEnd);
+assert.ok(!pa.clustered&&!pb.clustered,'Nearby point records remain individually visible as diamonds');
+assert.equal(Math.abs((centerAt(pa.curve,pa.x)+pa.markerOffset)-(centerAt(pb.curve,pb.x)+pb.markerOffset)),20,'Crowded markers separate vertically, not in time');
+assert.equal(pa.markerHitHeight,20);assert.equal(pb.markerHitHeight,20,'Crowded touch areas cannot silently overlap');
+assert.equal(get(points,'Next ruler').subtrack,0);assert.equal(pa.x,24+(historicalDate('753 BC')-bounds.min)/(bounds.max-bounds.min)*952);
+assert.equal(get(points,'C').y-get(points,'B').y,128,'Default lane-center spacing is one-third smaller than 192px');
+const hugeZoom=layoutRow(row,pointRecords,bounds,10000,{});
+assert.equal(get(hugeZoom,'Point A').markerOffset,0);assert.equal(get(hugeZoom,'Point B').markerOffset,0,'Separated dates return to the stream centerline');
+assert.deepEqual(points.items.map(p=>[p.key,p.laneId,p.y]),hugeZoom.items.map(p=>[p.key,p.laneId,p.y]),'Marker callouts cannot create historical lanes');
+assert.equal(diamondPath(100,80),'M 100,71 L 109,80 L 100,89 L 91,80 Z');
+const oneYear=record('Known year interval','person','753 BC','752 BC',{related_to:['B']});
+assert.equal(isInstantItem(get(layoutRow(row,[a,b,c,oneYear],bounds,1000,{}),'Known year interval')),false,'Known nonzero durations remain bars');
+const samePoints=Array.from({length:8},(_,i)=>record('Same-date '+i,'person','753 BC','753 BC',{related_to:['B']}));
+const densePoints=layoutRow(row,[a,b,c,...samePoints],bounds,1000,{});
+assert.equal(densePoints.items.filter(p=>isInstantItem(p)&&!p.clustered).length,2);
+assert.ok(densePoints.clusters.some(c=>c.items.length===6&&c.items.every(isInstantItem)),'Overflow has an explicit selectable point group');
+assert.equal(new Set([...densePoints.items.filter(p=>!p.clustered).map(p=>p.key),...densePoints.clusters.flatMap(c=>c.items.map(p=>p.key))]).size,densePoints.items.length);
+assert.equal(JSON.stringify(pointRecords),pointSnapshot,'Marker layout cannot mutate note dates or references');
+console.log('Validated diamond geometry, date-pinned collision handling, overflow access, nonzero durations and one-third tighter lane spacing.');

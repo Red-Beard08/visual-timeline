@@ -39,6 +39,9 @@
 .vt-chart .vt-composition-svg { flex-shrink:0; display:block; width:auto; height:auto; overflow:hidden; }
 .vt-chart .vt-duration-shape { stroke:var(--background-primary); stroke-width:1; stroke-linejoin:round; }
 .vt-chart .vt-anchor-shape { stroke:var(--text-muted); stroke-width:.6; stroke-opacity:.45; }
+.vt-chart .vt-instant-shape { stroke:var(--vt-marker-outline,var(--background-primary)); stroke-width:1.5; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+.vt-chart .vt-marker-pin { fill:none; stroke:var(--text-muted); stroke-width:1; stroke-opacity:.65; pointer-events:none; }
+.vt-chart .vt-marker-hit { stroke:none; }
 .vt-boundary-under { stroke:var(--background-primary); stroke-width:3; pointer-events:none; }
 .vt-item-boundary { stroke:var(--text-normal); stroke-width:1; stroke-opacity:.8; pointer-events:none; }
 .vt-context-rule { stroke:var(--background-modifier-border); stroke-width:1; opacity:.6; }
@@ -46,7 +49,7 @@
 .vt-chart .vt-category-box { vector-effect:non-scaling-stroke; }
 .vt-chart .vt-composed-record, .vt-chart .vt-name-button { cursor:pointer; outline:none; }
 .vt-chart .vt-composed-record:focus-visible>path, .vt-chart .vt-composed-record.is-selected>path, .vt-chart .vt-composed-record:focus-visible>circle, .vt-chart .vt-composed-record.is-selected>circle { stroke:var(--text-normal); stroke-width:2; }
-.vt-chart .vt-composed-record:focus-visible>rect, .vt-chart .vt-composed-record.is-selected>rect { stroke:var(--text-normal); stroke-width:2; }
+.vt-chart .vt-composed-record:focus-visible>rect:not(.vt-marker-hit), .vt-chart .vt-composed-record.is-selected>rect:not(.vt-marker-hit) { stroke:var(--text-normal); stroke-width:2; }
 .vt-chart .vt-composed-record:hover .vt-hit-area { fill:var(--text-normal); opacity:.1; }
 .vt-chart .vt-adaptive-label { font:500 13px var(--font-interface, sans-serif); fill:var(--text-normal); pointer-events:none; }
 .vt-chart .vt-label-anchor .vt-adaptive-label { font-weight:650; }

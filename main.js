@@ -327,6 +327,14 @@ function centerAt(curve, x) {
   return curve.origin + (curve.target - curve.origin) * t * t * (3 - 2 * t) + (curve.offset || 0) * (((_a = curve.initialScale) != null ? _a : 1) + (1 - ((_b = curve.initialScale) != null ? _b : 1)) * t);
 }
 var chronological = (a, b) => a.start - b.start || a.end - b.end || a.key.localeCompare(b.key);
+var INSTANT_MARKER_SIZE = 18;
+function isInstantItem(p) {
+  return !p.isAnchor && p.start === p.end && ["box", "stream", "line"].includes(p.style);
+}
+function diamondPath(x, y, size = INSTANT_MARKER_SIZE) {
+  const r = size / 2;
+  return `M ${x},${y - r} L ${x + r},${y} L ${x},${y + r} L ${x - r},${y} Z`;
+}
 function layoutRow(row, records, bounds, width, styles) {
   const items = [], diagnostics = [], lanes = [];
   const x = (n) => 24 + (n - bounds.min) / Math.max(1 / 366, bounds.max - bounds.min) * (width - 48);
@@ -397,7 +405,7 @@ function layoutRow(row, records, bounds, width, styles) {
   const anchorHalf = Math.max(20, ...anchors.map((p) => p.half));
   const bands = items.filter((p) => p.style === "band" && p.layer.bandPlacement !== "context");
   const maxHalf = Math.max(anchorHalf, ...bands.map((p) => p.layer.bandShape === "contour" ? p.half : Math.max(p.half, anchorHalf + 12)));
-  const laneStep = Math.max(192, maxHalf * 2 + 80), firstY = Math.max(134, maxHalf + 104);
+  const laneStep = Math.max(Math.max(192, maxHalf * 2 + 80) * 2 / 3, maxHalf * 2 + 24), firstY = Math.max(134, maxHalf + 104);
   let nextY = firstY;
   const assign = (p) => {
     const cs = children(p);
@@ -523,8 +531,37 @@ function layoutRow(row, records, bounds, width, styles) {
     p.y += offset;
   }
   const clusters = [];
+  const pointLanes = /* @__PURE__ */ new Map();
+  for (const p of ordinary.filter(isInstantItem)) {
+    const list2 = pointLanes.get(p.laneId) || [];
+    list2.push(p);
+    pointLanes.set(p.laneId, list2);
+  }
+  for (const group of pointLanes.values()) {
+    let bucket = [];
+    const flush = () => {
+      if (!bucket.length) return;
+      const slots = Math.min(3, bucket.length), offsets = slots === 1 ? [0] : slots === 2 ? [-10, 10] : [-20, 0, 20];
+      const cy = centerAt(bucket[0].curve, bucket[0].x);
+      bucket.forEach((p, i) => {
+        p.markerOffset = cy + offsets[Math.min(i, 2)] - centerAt(p.curve, p.x);
+        p.markerHitHeight = slots === 1 ? 44 : 20;
+      });
+      if (bucket.length > 3) {
+        const overflow = bucket.slice(2);
+        overflow.forEach((p) => p.clustered = true);
+        clusters.push({ key: `point-cluster:${overflow[0].key}`, x: overflow[0].x, y: cy + 20, items: overflow });
+      }
+      bucket = [];
+    };
+    for (const p of group.sort((a, b) => a.x - b.x || chronological(a, b))) {
+      if (bucket.length && (p.x - bucket[0].x > 22 || Math.abs(centerAt(p.curve, p.x) - centerAt(bucket[0].curve, bucket[0].x)) > 22)) flush();
+      bucket.push(p);
+    }
+    flush();
+  }
   const clusterGroups = /* @__PURE__ */ new Map();
-  for (const p of ordinary.filter((p2) => p2.style !== "band")) {
+  for (const p of ordinary.filter((p2) => p2.style !== "band" && !isInstantItem(p2))) {
     if (p.style !== "dot" && !p.clustered && p.xEnd - p.x >= 12) continue;
     const key = `${p.laneId}/${p.style === "dot" ? "points" : "small"}`;
     const list2 = clusterGroups.get(key) || [];
@@ -567,8 +604,8 @@ function placeLabels(items, width, measure, height = 300) {
   for (const p of [...items].sort((a, b) => Number(b.isAnchor) - Number(a.isAnchor) || chronological(a, b))) {
     if (!["adaptive", "always"].includes(p.layer.labels)) continue;
     const category = ((_a = p.integratedAnchors) == null ? void 0 : _a.length) && p.layer.bandShape !== "contour";
-    const sx = p.isAnchor ? Math.min(p.xEnd - 4, p.curve.settle + 10) : category ? Math.max(p.x, p.integratedAnchors[0].x) + 8 : p.x + 2;
-    const sy = centerAt(p.curve, sx);
+    const sx = p.isAnchor ? Math.min(p.xEnd - 4, p.curve.settle + 10) : category ? Math.max(p.x, p.integratedAnchors[0].x) + 8 : isInstantItem(p) ? p.x : p.x + 2;
+    const sy = centerAt(p.curve, sx) + (isInstantItem(p) ? p.markerOffset || 0 : 0);
     const available = Math.max(28, p.xEnd - sx - 8);
     const preferred = p.isAnchor || ((_b = p.integratedAnchors) == null ? void 0 : _b.length) ? Math.min(340, available) : Math.min(170, Math.max(60, available));
     const anchor = anchors.find((a) => a.key === p.anchorKey);
@@ -741,7 +778,15 @@ var NS = ["http:", "", "www.w3.org", "2000", "svg"].join("/");
 var nextClipId = 0;
 function element(tag, attrs = {}, text2) {
   const el = document.createElementNS(NS, tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "aria-label") {
+      const id2 = `vt-svg-title-${++nextClipId}`, title = document.createElementNS(NS, "title");
+      title.id = id2;
+      title.textContent = String(v);
+      el.setAttribute("aria-labelledby", id2);
+      el.appendChild(title);
+    } else el.setAttribute(k, String(v));
+  }
   if (text2) el.textContent = text2;
   return el;
 }
@@ -792,7 +837,9 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       const p = items[0], r = p.record;
       selected = p;
       const meta = header.createDiv({ cls: "vt-selection-meta" });
-      meta.createSpan({ text: `${r.date.circa ? "c. " : ""}${r.date.display || [r.date.start, r.date.end].filter(Boolean).join(" \u2014 ")}` });
+      const yearPoint = isInstantItem(p) && r.date.precision === "year";
+      meta.createSpan({ text: `${r.date.circa ? "c. " : ""}${yearPoint ? r.date.start : r.date.display || [r.date.start, r.date.end].filter(Boolean).join(" \u2014 ")}` });
+      if (yearPoint) meta.createSpan({ text: "Year precision \xB7 exact duration not recorded" });
       if ((_a = p.integratedAnchors) == null ? void 0 : _a.length) meta.createSpan({ text: `Context for: ${p.integratedAnchors.map((a) => a.record.title).join(" \xB7 ")}` });
       else if (p.anchor) meta.createSpan({ text: p.anchor.title });
       const actions = header.createDiv({ cls: "vt-selection-actions" });
@@ -864,12 +911,12 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       }
       const z = (p) => {
         var _a2;
-        return (((_a2 = p.integratedAnchors) == null ? void 0 : _a2.length) ? p.layer.bandShape === "contour" ? 5e3 : -1e4 : p.layer.plane === "background" ? 0 : 1e4) + row.layers.indexOf(p.layer);
+        return (((_a2 = p.integratedAnchors) == null ? void 0 : _a2.length) ? p.layer.bandShape === "contour" ? 5e3 : -1e4 : p.layer.plane === "background" ? 0 : 1e4) + row.layers.indexOf(p.layer) + (isInstantItem(p) ? 0.5 : 0);
       };
       const shapeGroup = (items, x, y, cluster = false) => {
         const p = items[0], g = element("g", { class: "vt-composed-record", tabindex: 0, role: "button", "aria-label": cluster ? `${items.length} items; select to list` : p.record.title, "data-key": p.key, "data-records": items.map((i) => i.record.id).join("|"), "data-lane": p.laneId, "data-track": p.subtrack });
         const full = cluster ? `${items.length} items` : `${p.record.title} \xB7 ${p.record.date.display || p.record.date.start}`;
-        g.appendChild(element("title", {}, full));
+        g.querySelector("title").textContent = full;
         const select = () => details(items);
         g.addEventListener("click", select);
         g.addEventListener("focus", () => {
@@ -891,7 +938,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
           }
         });
         if (cluster) {
-          g.appendChild(element("circle", { cx: x, cy: y, r: 10, fill: p.layer.color, class: "vt-cluster-shape" }));
+          g.appendChild(items.every(isInstantItem) ? element("path", { d: diamondPath(x, y, 20), fill: p.layer.color, class: "vt-cluster-shape vt-instant-cluster" }) : element("circle", { cx: x, cy: y, r: 10, fill: p.layer.color, class: "vt-cluster-shape" }));
           g.appendChild(element("text", { x, y: y + 4, fill: contrastText(p.layer.color), "text-anchor": "middle", class: "vt-cluster-text" }, String(items.length)));
         }
         return g;
@@ -914,14 +961,19 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
             svg.appendChild(clip);
             g.appendChild(element("path", { d: segment.path, fill: p.layer.color, "fill-opacity": p.layer.opacity * (segment.kind === "overlay" ? 0.28 : 0.18), stroke: p.layer.color, "stroke-opacity": 0.65, "stroke-width": 1, "stroke-dasharray": segment.kind === "continuation" ? "5 4" : "none", "clip-path": `url(#${id2})`, class: `vt-integrated-band vt-integrated-${segment.kind}`, "data-anchor": segment.anchor.record.id }));
           }
+        } else if (isInstantItem(p)) {
+          const markerY = y + (p.markerOffset || 0), hitHeight = p.markerHitHeight || 44;
+          g.appendChild(element("rect", { x: x - 22, y: markerY - hitHeight / 2, width: 44, height: hitHeight, fill: "transparent", class: "vt-marker-hit" }));
+          if (p.markerOffset) g.appendChild(element("path", { d: `M ${x},${y} V ${markerY}`, class: "vt-marker-pin" }));
+          g.appendChild(element("path", { ...attrs, d: diamondPath(x, markerY), class: "vt-instant-shape", style: `--vt-marker-outline:${contrastText(p.layer.color)}`, "data-date-x": x, "data-marker-y": markerY, "data-marker-size": INSTANT_MARKER_SIZE }));
         } else if (p.style === "stream" || p.style === "box") {
           if (p.xEnd === p.x) g.appendChild(element("line", { x1: x, x2: x, y1: y - 6, y2: y + 6, stroke: p.layer.color, "stroke-width": 2 }));
           else g.appendChild(element("path", { ...attrs, d: ribbonPath(p), class: p.isAnchor ? "vt-anchor-shape" : "vt-duration-shape" }));
         } else if (p.style === "dot") g.appendChild(element("circle", { ...attrs, cx: x, cy: y, r: 5 }));
         else if (p.style === "line") g.appendChild(element("path", { d: curvePath(p), stroke: p.layer.color, "stroke-width": 2, fill: "none", opacity: p.layer.opacity }));
         else g.appendChild(element("rect", { ...attrs, opacity: p.context ? p.layer.opacity * 0.18 : p.layer.opacity, x, y: y - p.half, width: Math.max(2, p.xEnd - x), height: p.half * 2, rx: p.context ? 4 : 6, class: "vt-context-band" }));
-        if (!p.isAnchor && p.style !== "band") g.appendChild(element("path", { d: curvePath(p), stroke: "transparent", "stroke-width": 20, fill: "none", class: "vt-hit-area" }));
-        if (!p.isAnchor && ["box", "stream", "line"].includes(p.style)) for (const boundary of [.../* @__PURE__ */ new Set([p.x, p.xEnd])]) {
+        if (!p.isAnchor && p.style !== "band" && !isInstantItem(p)) g.appendChild(element("path", { d: curvePath(p), stroke: "transparent", "stroke-width": 20, fill: "none", class: "vt-hit-area" }));
+        if (!p.isAnchor && !isInstantItem(p) && ["box", "stream", "line"].includes(p.style)) for (const boundary of [.../* @__PURE__ */ new Set([p.x, p.xEnd])]) {
           const cy = centerAt(p.curve, boundary), half = halfAt(p, boundary) + 2;
           const cap = { x1: boundary, x2: boundary, y1: cy - half, y2: cy + half };
           g.appendChild(element("line", { ...cap, class: "vt-boundary-under" }));
@@ -934,14 +986,15 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
         const members = cluster.items.filter((p) => visible.has(p.record.id));
         if (members.length) svg.appendChild(shapeGroup(members, cluster.x, cluster.y, true));
       }
+      const leaders = element("g", { class: "vt-leaders" });
+      svg.insertBefore(leaders, svg.querySelector(".vt-composed-record"));
       const callouts = element("g", { class: "vt-callouts" });
       svg.appendChild(callouts);
       for (const box of labelBoxes) {
         const p = shown.find((i) => i.key === box.key);
         const endY = box.y > box.sourceY ? box.y - 3 : box.y + 18, targetX = box.x + Math.min(box.width / 2, 8), bendY = endY + (box.y > box.sourceY ? -7 : 7);
-        if (box.leader) callouts.appendChild(element("path", { d: `M ${box.sourceX} ${box.sourceY} V ${bendY} H ${targetX} V ${endY}`, class: "vt-label-leader" }));
+        if (box.leader) leaders.appendChild(element("path", { d: `M ${box.sourceX} ${box.sourceY} V ${bendY} H ${targetX} V ${endY}`, class: "vt-label-leader" }));
         const label = element("g", { class: `vt-name-button vt-label-${box.kind}`, tabindex: 0, role: "button", "aria-label": p.record.title });
-        label.appendChild(element("title", {}, p.record.title));
         label.appendChild(element("rect", { x: box.x - 3, y: box.y - 3, width: box.width + 6, height: box.height + 6, rx: 2, class: "vt-label-backdrop" }));
         label.appendChild(element("text", { x: box.x, y: box.y + 12, class: "vt-adaptive-label", "data-for": p.key }, box.text));
         label.addEventListener("click", () => details([p]));

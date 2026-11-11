@@ -82,6 +82,9 @@ components:
   item-bar:
     backgroundColor: "{colors.default-layer}"
     height: "14px"
+  date-pinned-marker:
+    backgroundColor: "{colors.default-layer}"
+    size: "18px"
   context-band:
     rounded: "{rounded.context}"
     height: "32px"
@@ -142,6 +145,7 @@ The chrome inherits the active Obsidian theme; muted data colors distinguish con
 - **Host text and muted text:** record names and primary content versus dates, lane titles, context and supporting metadata.
 - **Host border:** fine separators and the chart/selection frames. Selected text uses the host text-selection color.
 - **Count foregrounds:** cluster numerals choose black or white from the actual configured marker color using linearized sRGB luminance (threshold `0.179`). They do not inherit the host's foreground color.
+- **Diamond outlines:** date-pinned point markers use the same fill-based black/white contrast calculation, passed through `--vt-marker-outline`. Focus and selection retain the host-text stroke rather than introducing another accent color.
 
 **The Host-Theme Rule.** Preserve Obsidian's active theme; no fixed dark canvas, imported font or example palette is required.
 
@@ -161,7 +165,7 @@ The dashboard has a compact title/actions strip, one wrapping filter/control row
 
 The chart has one shared horizontal time scale. Its sticky date ruler is `38px` high. A sticky lane gutter is `24px` for the stream-led composition or `160px` when independent non-stream/non-band records require lane labels. The base plot is at least `1000px`; Fit returns to base scale and zoom is bounded from `1` to `32`. Horizontal overflow is intentional, including on narrow screens.
 
-Historical positions are calculated from note dates, with `24px` plot insets. The frontmatter's category-box, stream-ribbon and item-bar heights are separate defaults; layout uses half of each full height. Per-layer overrides accept `8px` through `240px`, while a blank height uses the automatic default. An integrated category box is at least the related stream's height plus `24px`, leaving `12px` on each side of their shared centerline even when custom heights are used. The first lane center is the greater of `134px` and the largest reserved half-height plus `104px`; lane-center spacing is the greater of `192px` and twice that half-height plus `80px`. Reserved half-height includes anchors and non-strip bands, with the category clearance applied to box bands. Configured row height remains a minimum, not a reason to compress names or ribbons. Zoom changes x positions and recomputes the curves without stretching y coordinates or thicknesses.
+Historical positions are calculated from note dates, with `24px` plot insets. The frontmatter's category-box, stream-ribbon and item-bar heights are separate defaults; layout uses half of each full height. Per-layer overrides accept `8px` through `240px`, while a blank height uses the automatic default. An integrated category box is at least the related stream's height plus `24px`, leaving `12px` on each side of their shared centerline even when custom heights are used. The first lane center is the greater of `134px` and the largest reserved half-height plus `104px`. Lane-center spacing is one-third tighter than the former spacing: for reserved half-height `h`, use `max(max(192px, 2h + 80px) × 2/3, 2h + 24px)`. The default is `128px` rather than `192px`; the final term preserves clearance for unusually tall custom categories. Reserved half-height includes anchors and non-strip bands, with the category clearance applied to box bands. The first-lane position, shape heights, fonts and name-rail step do not shrink. Configured row height remains a minimum, not a reason to compress names or ribbons. Zoom changes x positions and recomputes the curves without stretching y coordinates or thicknesses.
 
 Attached names use up to four fixed levels separated by the name-rail step. Uppermost and lowermost branches place their rails outside their own stream and any integrated category-box extent; other records use the upper rail. Stream names sit outside the stream, with the label box starting `7px` below its lower edge. Category names start `7px` inside the category's upper edge. Orthogonal leaders tie attached labels back to their actual shapes. Collision placement may use space along the duration, abbreviate a name or use a nearby remaining text slot; it never invents another historical lane. Not every full name is guaranteed to fit in an overview.
 
@@ -183,7 +187,7 @@ Flowing succession ribbons express continuity and taper at terminal ends. Foregr
 
 Category boxes are taller, centered background envelopes, not enlarged stream ribbons. Flat category stretches use the category corner token; curved stretches preserve constant category thickness along the shared centerline instead of inheriting the stream's fork-width change or terminal taper. Their non-scaling dashed outline remains subordinate to the foreground stream and item boundaries.
 
-The frontmatter's corner tokens describe context strips, category/lane boxes, chart/selection frames and layer-editor groups. Event dots are circles with a `5px` radius; cluster markers are circles with a `10px` radius. These are marker radii, not extra corner tokens. The transparent name-focus rectangle has a `2px` corner radius and no resting fill or border. Native control corners remain the host's responsibility.
+The frontmatter's corner tokens describe context strips, category/lane boxes, chart/selection frames and layer-editor groups. Equal-coordinate non-anchor box, stream and line records use the frontmatter's date-pinned diamond size, with a non-scaling `1.5px` contrast outline rather than an invented duration. Point-only overflow groups use a `20px` diamond. Ordinary event dots remain circles with a `5px` radius; other cluster markers remain circles with a `10px` radius. These are marker geometries, not extra corner tokens. The transparent name-focus rectangle has a `2px` corner radius and no resting fill or border. Native control corners remain the host's responsibility.
 
 ## Components
 
@@ -203,7 +207,17 @@ Mouse/pen drag pans horizontally after a `5px` movement threshold; it suppresses
 
 ### Aligned name rails
 
-Names are unboxed text with subdued orthogonal leaders. Stream names sit just outside their ribbon; category names occupy the category's upper inset; attached names occupy their branch's fixed text rails with clearance for the larger category extent. Hover underlines a name; focus outlines its transparent backing rectangle. The label and shape are independently selectable, and full titles remain available through accessible labels, native SVG titles and the selection strip.
+Names are unboxed text with subdued orthogonal leaders. Leaders paint behind historical shapes so they do not cut across diamond faces; names remain above the shapes. Stream names sit just outside their ribbon; category names occupy the category's upper inset; attached names occupy their branch's fixed text rails with clearance for the larger category extent. Hover underlines a name; focus outlines its transparent backing rectangle. The label and shape are independently selectable, and full titles remain available through accessible labels, native SVG titles and the selection strip.
+
+### Date-pinned point records
+
+A non-anchor box, stream or line record whose start and end resolve to the same coordinate is a point, including a year-only record. Its diamond stays centered on the exact date x-coordinate at every zoom; a real nonzero interval retains its duration shape. This does not convert ordinary dot-style events or rewrite dates, precision or settings.
+
+Nearby points in the same lane fan vertically, never horizontally. Groups are bounded within `22px` of the first point in both date x-position and curve center. Two points use display offsets of `−10px` and `+10px`; three positions use `−20px`, `0` and `+20px` around the first point's curve center. Short vertical pins return displaced symbols to their own actual curve at their unchanged date. More than three nearby points keep the first two individual symbols and put the remaining records in a selectable diamond overflow group at the third position.
+
+Individual diamonds have transparent `44px × 44px` hit targets when alone and `44px × 20px` targets in crowded groups to avoid neighboring target overlap. These hit rectangles receive no focus/selection stroke; the visible diamond and pin retain the existing host-text focus/selection treatment. Labels and selection remain the native, unboxed patterns above.
+
+For a year-precision point, details show the single recorded year with its existing circa modifier when present, followed by **Year precision · exact duration not recorded**. The symbol communicates a recorded date, not a measured zero-length reign or a fabricated year-long bar.
 
 ### Clusters and selection
 
@@ -212,6 +226,8 @@ Clusters are count-marked hit-target groups, never discarded records. Selecting 
 Desktop selection is a slim, secondary-surface information strip below the chart, with a `320px` maximum height and internal scrolling. It presents title, dates, optional anchor, a separate **Open note** action and **Close**. Categories and relationships are collapsed behind a native disclosure. Narrow layouts use the bottom-sheet treatment described in Layout.
 
 Chart records and names are keyboard-focusable buttons. Enter or Space selects; Left/Right arrows move cyclically between rendered shape groups. Opening details focuses its heading. Escape or Close hides details, clears shape selection and returns focus to the previous element when it is still available. Shape focus/selection uses a `2px` host-text stroke in addition to the interface focus outline. Hints announce focused/hovered record names and dates through a polite live region.
+
+SVG surfaces, shapes and names use `aria-labelledby` linked to one uniquely identified native SVG `title`, not SVG `aria-label` tooltip targets. Shape titles include the full record name and recorded date; name labels retain the full name even when visible text is truncated. This preserves accessible names and native SVG hover titles without invoking Obsidian's HTML-only tooltip handling on SVG elements. HTML controls keep their existing accessible labels and native tooltip behavior.
 
 The only authored reveal motion is the selection panel translating upward from `3px` over `0.16s` with `cubic-bezier(.16,1,.3,1)`. It runs only when reduced motion is not requested; there is no reduced-motion animation fallback or continuous chart animation.
 
@@ -226,6 +242,8 @@ The only authored reveal motion is the selection panel translating upward from `
 - Do keep context bounded and subordinate, with full detail available separately.
 - Do calculate cluster numeral contrast against its configured marker fill.
 - Do keep integrated category boxes taller than streams, centered behind them and independent of stream end dates; retain contour mode as an explicit option.
+- Do pin equal-coordinate duration-style records to their exact date with diamonds, preserving true intervals and ordinary event dots.
+- Do use compact lane spacing with the custom-category safety floor, without shrinking shapes, fonts or name rails.
 
 ### Don't:
 
@@ -234,4 +252,5 @@ The only authored reveal motion is the selection panel translating upward from `
 - Don't give resting name labels button backplates or replace continuity ribbons with disconnected cards.
 - Don't hide records merely because their full names cannot fit in an overview.
 - Don't shorten category end dates to stream endpoints or treat context-only extent as a historical successor.
+- Don't stretch a year-precision point into a historical interval or move its date horizontally to resolve crowding.
 - Don't reproduce illustrative mockup chronology or claim pixel-perfect fidelity or real iOS verification from this design record.

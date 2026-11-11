@@ -10,15 +10,29 @@ await page.setContent(`<style>:root{--background-primary:#202020;--background-se
 await page.evaluate(()=>{HTMLElement.prototype.createEl=function(tag,o={}){const el=document.createElement(tag);if(o.cls)el.className=o.cls;if(o.text)el.textContent=o.text;for(const k of ['type','value','placeholder'])if(o[k]!==undefined)el[k]=o[k];for(const [k,v]of Object.entries(o.attr||{}))el.setAttribute(k,v);this.appendChild(el);return el;};HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o);};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o);};HTMLElement.prototype.empty=function(){this.replaceChildren();};HTMLElement.prototype.addClass=function(n){this.classList.add(n);};});
 await page.addScriptTag({content:bundle.outputFiles[0].text});await page.evaluate(({records,config})=>start(records,config),{records,config});
 await page.waitForFunction(()=>document.querySelector('.vt-composed-record'));
+assert.equal(await page.locator('.vt-chart svg[aria-label],.vt-chart svg [aria-label]').count(),0,'SVG accessibility must not invoke Obsidian HTML tooltips');
+assert.ok(await page.locator('.vt-composed-record,.vt-name-button').evaluateAll(es=>es.every(e=>e.getAttribute('aria-labelledby')&&document.getElementById(e.getAttribute('aria-labelledby'))?.textContent)),'Every shape and name keeps a uniquely linked accessible title');
 const count=await page.evaluate(()=>new Set([...document.querySelectorAll('[data-records]')].flatMap(e=>e.getAttribute('data-records').split('|'))).size);assert.equal(count,records.length);
 const expectedNames=new Set(config.views[0].rows.flatMap(row=>row.layers.filter(l=>['adaptive','always'].includes(l.labels)).flatMap(l=>records.filter(r=>l.types.includes(r.type)&&(!l.categories.length||l.categories.some(c=>r.categories.includes(c)))).map(r=>r.id)))).size;
 assert.equal(await page.locator('.vt-adaptive-label').count(),expectedNames,'Every named record needs a visible label, including cluster members');
 const heights=await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height));
+const instantMarkers=page.locator('.vt-instant-shape');assert.ok(await instantMarkers.count()>0);
+const pointNames=['Zechariah','Shallum'];
+for(const name of pointNames){
+  const g=page.locator('.vt-composed-record').filter({has:page.locator('.vt-instant-shape')}).filter({hasText:name});
+  assert.equal(await g.count(),1,`${name} must be an individually rendered diamond`);
+  await g.locator('.vt-instant-shape').click();assert.equal(await page.locator('.vt-inspector h3').textContent(),name);
+  assert.match(await page.locator('.vt-selection-meta').textContent(),/Year precision/);await page.keyboard.press('Escape');
+  await g.focus();await page.keyboard.press('Enter');assert.equal(await page.locator('.vt-inspector h3').textContent(),name);await page.keyboard.press('Escape');
+  assert.equal(await g.locator('title').count(),1,'Accessible names use one native SVG title, not competing tooltips');
+}
+const pointDatesBefore=await instantMarkers.evaluateAll(es=>es.map(e=>e.getAttribute('data-date-x')));
 const categories=page.locator('.vt-category-box');
 assert.ok(await categories.count()>0,'Integrated era must render as taller category boxes');
 const categoryBounds=await categories.evaluateAll(es=>es.map(e=>({anchor:e.getAttribute('data-anchor'),tag:e.tagName,height:e.getBBox().height,y:e.getBBox().y,from:e.getAttribute('data-from'),to:e.getAttribute('data-to')})));
 assert.ok(categoryBounds.every(b=>b.tag==='rect'&&b.height===88),'Settled category boxes use independent 88px rectangles');
 assert.equal(new Set(categoryBounds.map(b=>b.anchor)).size,2,'The same era follows both explicitly related kingdoms');
+assert.equal(Math.abs(categoryBounds[1].y-categoryBounds[0].y),128,'Native lane spacing is one-third tighter');
 const categoryKey=await categories.first().evaluate(e=>e.parentElement.getAttribute('data-key'));
 await page.locator('.vt-category-box').first().evaluate(e=>e.parentElement.focus());await page.keyboard.press('Enter');
 assert.ok(await page.locator('.vt-inspector').isVisible());assert.match(await page.locator('.vt-inspector h3').textContent(),/Exile/i);
@@ -56,12 +70,16 @@ await page.getByLabel('Year lines',{exact:true}).uncheck();assert.equal(await pa
 assert.deepEqual(await page.locator('.vt-duration-shape').evaluateAll(es=>es.map(e=>e.getAttribute('d'))),pathsBefore,'Grid toggling cannot move historical items');
 await page.getByLabel('Year lines',{exact:true}).check();
 await page.screenshot({path:path.join(process.env.TEMP,'timeline-v140-desktop.png'),fullPage:true});
+const detailBox=await page.locator('.vt-composed-record').filter({has:page.locator('.vt-instant-shape')}).filter({hasText:'Zechariah'}).boundingBox();
+await page.screenshot({path:path.join(process.env.TEMP,'timeline-diamond-detail.png'),clip:{x:Math.max(0,detailBox.x-180),y:Math.max(0,detailBox.y-140),width:540,height:350}});
 const laneBefore=await page.locator('[data-records]').evaluateAll(es=>Object.fromEntries(es.map(e=>[e.getAttribute('data-key'),[e.getAttribute('data-lane'),e.getAttribute('data-track')]])));
 await page.evaluate(id=>chart.setVisible(new Set([id])),records[0].id);assert.equal(await page.locator('[data-records]').count(),1);
 await page.evaluate(rs=>chart.setVisible(new Set(rs.map(r=>r.id))),records);
 assert.deepEqual(await page.locator('[data-records]').evaluateAll(es=>Object.fromEntries(es.map(e=>[e.getAttribute('data-key'),[e.getAttribute('data-lane'),e.getAttribute('data-track')]]))),laneBefore);
+assert.deepEqual(await instantMarkers.evaluateAll(es=>es.map(e=>e.getAttribute('data-date-x'))),pointDatesBefore,'Filtering cannot shift the diamond dates');
 await page.getByRole('button',{name:'Zoom in',exact:true}).click();assert.deepEqual(await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height)),heights);
 assert.deepEqual(await categories.evaluateAll(es=>es.map(e=>[e.getBBox().height,e.getBBox().y])),categoryBounds.map(b=>[b.height,b.y]),'Category heights and centers remain fixed during zoom');
+assert.ok(await instantMarkers.evaluateAll(es=>es.every(e=>Number(e.dataset.markerSize)===18)),'Zoom cannot resize marker symbols');
 const panBox=await page.locator('.vt-chart-scroll').boundingBox(),panX=panBox.x+450,panY=panBox.y+60;
 const panStart=await page.locator('.vt-chart-scroll').evaluate(e=>e.scrollLeft);
 await page.mouse.move(panX,panY);await page.mouse.down();await page.mouse.move(panX-100,panY,{steps:5});
@@ -88,6 +106,11 @@ await page.setViewportSize({width:390,height:844});await page.waitForTimeout(100
 assert.equal(await page.locator('.vt-adaptive-label').count(),expectedNames,'Narrow charts retain name labels on the horizontally scrollable canvas');
 await page.locator('.vt-composed-record').first().focus();await page.keyboard.press('Enter');await page.screenshot({path:path.join(process.env.TEMP,'timeline-v140-mobile.png'),fullPage:true});
 assert.ok(await page.getByRole('button',{name:'Close',exact:true}).isVisible());await page.getByRole('button',{name:'Close',exact:true}).click();
+const mobilePoint=page.locator('.vt-composed-record').filter({has:page.locator('.vt-instant-shape')}).filter({hasText:'Zechariah'});
+await mobilePoint.locator('.vt-instant-shape').scrollIntoViewIfNeeded();await mobilePoint.locator('.vt-instant-shape').click();
+assert.equal(await page.locator('.vt-inspector h3').textContent(),'Zechariah');assert.match(await page.locator('.vt-selection-meta').textContent(),/Year precision/);
+await page.screenshot({path:path.join(process.env.TEMP,'timeline-diamond-mobile.png'),fullPage:true});
+await page.getByRole('button',{name:'Close',exact:true}).click();
 await page.locator('.vt-chart-scroll').evaluate(e=>{e.scrollTop=100;e.scrollLeft=100;});const sticky=await page.evaluate(()=>{const frame=document.querySelector('.vt-chart-scroll').getBoundingClientRect(),axis=document.querySelector('.vt-sticky-axis').getBoundingClientRect();return Math.abs(axis.top-frame.top);});assert.ok(sticky<=2);
 console.log(JSON.stringify({covered:count,heights,labelOverlaps:overlaps,categoryBounds,categorySelection:true,desktop:true,narrow:true,selection:true,filterStability:true,stickyAxis:true}));
 }finally{await browser.close();}

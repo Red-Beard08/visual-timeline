@@ -1,13 +1,22 @@
 import type {TimelineRecord} from './types';
 import type {Composition,CompositionSettings} from './composition';
 import {matches,styleFor,contrastText} from './composition';
-import {layoutRow,placeLabels,centerAt,halfAt,ribbonPath,curvePath,integratedBandSegments,PlacedItem} from './layout';
+import {layoutRow,placeLabels,centerAt,halfAt,ribbonPath,curvePath,integratedBandSegments,isInstantItem,diamondPath,INSTANT_MARKER_SIZE,PlacedItem} from './layout';
 import {formatTime,timeTicks,historicalDate} from './dates';
 import {installDragPan} from './drag-pan';
 const NS=['http:','','www.w3.org','2000','svg'].join('/');
 let nextClipId=0;
 function element(tag:string,attrs:Record<string,string|number>={},text?:string):SVGElement {
-  const el=document.createElementNS(NS,tag) as SVGElement;for(const [k,v]of Object.entries(attrs))el.setAttribute(k,String(v));if(text)el.textContent=text;return el;
+  const el=document.createElementNS(NS,tag) as SVGElement;
+  for(const [k,v]of Object.entries(attrs)){
+    // Obsidian treats aria-label as an HTML tooltip target. SVG uses a named
+    // title instead, preserving accessibility without requiring HTML methods.
+    if(k==='aria-label'){
+      const id=`vt-svg-title-${++nextClipId}`,title=document.createElementNS(NS,'title');
+      title.id=id;title.textContent=String(v);el.setAttribute('aria-labelledby',id);el.appendChild(title);
+    }else el.setAttribute(k,String(v));
+  }
+  if(text)el.textContent=text;return el;
 }
 export interface ChartController {destroy():void;setVisible(ids:Set<string>):void;zoomBy(factor:number):void;fit():void;}
 export function renderComposition(parent:HTMLElement,view:Composition,settings:CompositionSettings,records:TimelineRecord[],_bounds:{min:number;max:number},open:(path:string)=>void,initialZoom=1,saveView?:(view:Composition)=>Promise<void>,toolbarHost?:HTMLElement):ChartController {
@@ -38,7 +47,9 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
     else{
       const p=items[0],r=p.record;selected=p;
       const meta=header.createDiv({cls:'vt-selection-meta'});
-      meta.createSpan({text:`${r.date.circa?'c. ':''}${r.date.display||[r.date.start,r.date.end].filter(Boolean).join(' — ')}`});
+      const yearPoint=isInstantItem(p)&&r.date.precision==='year';
+      meta.createSpan({text:`${r.date.circa?'c. ':''}${yearPoint?r.date.start:r.date.display||[r.date.start,r.date.end].filter(Boolean).join(' — ')}`});
+      if(yearPoint)meta.createSpan({text:'Year precision · exact duration not recorded'});
       if(p.integratedAnchors?.length)meta.createSpan({text:`Context for: ${p.integratedAnchors.map(a=>a.record.title).join(' · ')}`});
       else if(p.anchor)meta.createSpan({text:p.anchor.title});
       const actions=header.createDiv({cls:'vt-selection-actions'});
@@ -78,15 +89,15 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
       for(const y of [...new Set(layout.items.filter(p=>p.context).map(p=>p.y))]){
         svg.appendChild(element('line',{x1:0,x2:plotWidth,y1:y-22,y2:y-22,class:'vt-context-rule'}));
       }
-      const z=(p:PlacedItem)=>(p.integratedAnchors?.length?(p.layer.bandShape==='contour'?5000:-10000):p.layer.plane==='background'?0:10000)+row.layers.indexOf(p.layer);
+      const z=(p:PlacedItem)=>(p.integratedAnchors?.length?(p.layer.bandShape==='contour'?5000:-10000):p.layer.plane==='background'?0:10000)+row.layers.indexOf(p.layer)+(isInstantItem(p)?.5:0);
       const shapeGroup=(items:PlacedItem[],x:number,y:number,cluster=false)=>{
         const p=items[0],g=element('g',{class:'vt-composed-record',tabindex:0,role:'button','aria-label':cluster?`${items.length} items; select to list`:p.record.title,'data-key':p.key,'data-records':items.map(i=>i.record.id).join('|'),'data-lane':p.laneId,'data-track':p.subtrack});
         const full=cluster?`${items.length} items`: `${p.record.title} · ${p.record.date.display||p.record.date.start}`;
-        g.appendChild(element('title',{},full));
+        g.querySelector('title')!.textContent=full;
         const select=()=>details(items);
         g.addEventListener('click',select);g.addEventListener('focus',()=>{hint.textContent=full;});g.addEventListener('mouseenter',()=>{hint.textContent=full;});
         g.addEventListener('keydown',e=>{const k=(e as KeyboardEvent).key;if(k==='Enter'||k===' '){e.preventDefault();select();}else if(k==='ArrowRight'||k==='ArrowLeft'){e.preventDefault();const all=Array.from(scroll.querySelectorAll<SVGElement>('.vt-composed-record')),i=all.indexOf(g);all[(i+(k==='ArrowRight'?1:all.length-1))%all.length]?.focus();}});
-        if(cluster){g.appendChild(element('circle',{cx:x,cy:y,r:10,fill:p.layer.color,class:'vt-cluster-shape'}));g.appendChild(element('text',{x,y:y+4,fill:contrastText(p.layer.color),'text-anchor':'middle',class:'vt-cluster-text'},String(items.length)));}
+        if(cluster){g.appendChild(items.every(isInstantItem)?element('path',{d:diamondPath(x,y,20),fill:p.layer.color,class:'vt-cluster-shape vt-instant-cluster'}):element('circle',{cx:x,cy:y,r:10,fill:p.layer.color,class:'vt-cluster-shape'}));g.appendChild(element('text',{x,y:y+4,fill:contrastText(p.layer.color),'text-anchor':'middle',class:'vt-cluster-text'},String(items.length)));}
         return g;
       };
       for(const p of [...shown].filter(p=>!p.clustered).sort((a,b)=>z(a)-z(b))){
@@ -106,14 +117,19 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
             clip.appendChild(element('rect',{x:segment.from,y:0,width:segment.to-segment.from,height:layout.height}));svg.appendChild(clip);
             g.appendChild(element('path',{d:segment.path,fill:p.layer.color,'fill-opacity':p.layer.opacity*(segment.kind==='overlay'?.28:.18),stroke:p.layer.color,'stroke-opacity':.65,'stroke-width':1,'stroke-dasharray':segment.kind==='continuation'?'5 4':'none','clip-path':`url(#${id})`,class:`vt-integrated-band vt-integrated-${segment.kind}`,'data-anchor':segment.anchor.record.id}));
           }
+        }else if(isInstantItem(p)){
+          const markerY=y+(p.markerOffset||0),hitHeight=p.markerHitHeight||44;
+          g.appendChild(element('rect',{x:x-22,y:markerY-hitHeight/2,width:44,height:hitHeight,fill:'transparent',class:'vt-marker-hit'}));
+          if(p.markerOffset)g.appendChild(element('path',{d:`M ${x},${y} V ${markerY}`,class:'vt-marker-pin'}));
+          g.appendChild(element('path',{...attrs,d:diamondPath(x,markerY),class:'vt-instant-shape',style:`--vt-marker-outline:${contrastText(p.layer.color)}`,'data-date-x':x,'data-marker-y':markerY,'data-marker-size':INSTANT_MARKER_SIZE}));
         }else if(p.style==='stream'||p.style==='box'){
           if(p.xEnd===p.x)g.appendChild(element('line',{x1:x,x2:x,y1:y-6,y2:y+6,stroke:p.layer.color,'stroke-width':2}));
           else g.appendChild(element('path',{...attrs,d:ribbonPath(p),class:p.isAnchor?'vt-anchor-shape':'vt-duration-shape'}));
         }else if(p.style==='dot')g.appendChild(element('circle',{...attrs,cx:x,cy:y,r:5}));
         else if(p.style==='line')g.appendChild(element('path',{d:curvePath(p),stroke:p.layer.color,'stroke-width':2,fill:'none',opacity:p.layer.opacity}));
         else g.appendChild(element('rect',{...attrs,opacity:p.context?p.layer.opacity*.18:p.layer.opacity,x,y:y-p.half,width:Math.max(2,p.xEnd-x),height:p.half*2,rx:p.context?4:6,class:'vt-context-band'}));
-        if(!p.isAnchor&&p.style!=='band')g.appendChild(element('path',{d:curvePath(p),stroke:'transparent','stroke-width':20,fill:'none',class:'vt-hit-area'}));
-        if(!p.isAnchor&&['box','stream','line'].includes(p.style))for(const boundary of [...new Set([p.x,p.xEnd])]){
+        if(!p.isAnchor&&p.style!=='band'&&!isInstantItem(p))g.appendChild(element('path',{d:curvePath(p),stroke:'transparent','stroke-width':20,fill:'none',class:'vt-hit-area'}));
+        if(!p.isAnchor&&!isInstantItem(p)&&['box','stream','line'].includes(p.style))for(const boundary of [...new Set([p.x,p.xEnd])]){
           const cy=centerAt(p.curve,boundary),half=halfAt(p,boundary)+2;
           const cap={x1:boundary,x2:boundary,y1:cy-half,y2:cy+half};
           g.appendChild(element('line',{...cap,class:'vt-boundary-under'}));
@@ -122,13 +138,13 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
         if(selected?.key===p.key)g.classList.add('is-selected');svg.appendChild(g);
       }
       for(const cluster of layout.clusters){const members=cluster.items.filter(p=>visible.has(p.record.id));if(members.length)svg.appendChild(shapeGroup(members,cluster.x,cluster.y,true));}
+      const leaders=element('g',{class:'vt-leaders'});svg.insertBefore(leaders,svg.querySelector('.vt-composed-record'));
       const callouts=element('g',{class:'vt-callouts'});svg.appendChild(callouts);
       for(const box of labelBoxes){
         const p=shown.find(i=>i.key===box.key)!;
         const endY=box.y>box.sourceY?box.y-3:box.y+18,targetX=box.x+Math.min(box.width/2,8),bendY=endY+(box.y>box.sourceY?-7:7);
-        if(box.leader)callouts.appendChild(element('path',{d:`M ${box.sourceX} ${box.sourceY} V ${bendY} H ${targetX} V ${endY}`,class:'vt-label-leader'}));
+        if(box.leader)leaders.appendChild(element('path',{d:`M ${box.sourceX} ${box.sourceY} V ${bendY} H ${targetX} V ${endY}`,class:'vt-label-leader'}));
         const label=element('g',{class:`vt-name-button vt-label-${box.kind}`,tabindex:0,role:'button','aria-label':p.record.title});
-        label.appendChild(element('title',{},p.record.title));
         label.appendChild(element('rect',{x:box.x-3,y:box.y-3,width:box.width+6,height:box.height+6,rx:2,class:'vt-label-backdrop'}));
         label.appendChild(element('text',{x:box.x,y:box.y+12,class:'vt-adaptive-label','data-for':p.key},box.text));
         label.addEventListener('click',()=>details([p]));label.addEventListener('keydown',e=>{if(['Enter',' '].includes((e as KeyboardEvent).key)){e.preventDefault();details([p]);}});callouts.appendChild(label);

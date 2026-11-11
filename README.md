@@ -1,5 +1,13 @@
 # Visual Timeline
 
+## Diamond point markers and closer lanes (1.6.1)
+
+Bar/line records with equal start and end coordinates now use an **18px date-pinned diamond**, rather than a nearly invisible divider. Known nonzero durations remain bars; the marker's width never invents additional time. A year-precision point shows its recorded year and clarifies that an exact duration was not recorded.
+
+Nearby diamonds separate vertically with short pins back to their original dates. Up to three marker positions stay visible; denser overflow uses an explicit selectable diamond group. Names remain independently selectable. Zoom can separate crowded callouts, while filtering leaves date anchors and historical lanes stable. Dot layers keep their existing event markers.
+
+Default lane-center spacing is **128px instead of 192px**, one-third smaller. Shape heights, font sizes and label-rail spacing are unchanged. Extra clearance remains available for unusually tall configured categories. No note migration or settings-file rewrite is needed.
+
 ## Taller category boxes (1.6)
 
 Integrated category bands now draw behind their related streams as taller boxes on the same centerline. The default visual hierarchy is **88px category box → 40px stream → 14px item bar**. A category can begin while a stream is still active and continue after it ends: its own dates set its box boundaries, while the kingdom and ruler records keep their original endpoints. One category may attach to several explicitly related streams without adding a new row.

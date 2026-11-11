@@ -11,6 +11,8 @@ export interface PlacedItem {
   start:number; end:number; x:number; xEnd:number; laneId:string; subtrack:number;
   y:number; curve:Curve; anchor?:TimelineRecord; anchorKey?:string; isAnchor:boolean;
   half:number; initialHalf:number; terminal:boolean; clustered:boolean; context?:boolean; integratedAnchors?:PlacedItem[];
+  /** A display-only offset: the historical date and stream centerline never move. */
+  markerOffset?:number; markerHitHeight?:number;
 }
 export interface Cluster {key:string; x:number; y:number; items:PlacedItem[];}
 export interface RowLayout {items:PlacedItem[];lanes:Lane[];clusters:Cluster[];height:number;diagnostics:Diagnostic[];}
@@ -28,6 +30,12 @@ export function centerAt(curve:Curve,x:number):number {
   return curve.origin+(curve.target-curve.origin)*t*t*(3-2*t)+(curve.offset||0)*((curve.initialScale??1)+(1-(curve.initialScale??1))*t);
 }
 const chronological=(a:PlacedItem,b:PlacedItem)=>a.start-b.start||a.end-b.end||a.key.localeCompare(b.key);
+export const INSTANT_MARKER_SIZE=18;
+/** Equal coordinates are a point record, not an invented year-long interval. */
+export function isInstantItem(p:PlacedItem):boolean {return !p.isAnchor&&p.start===p.end&&['box','stream','line'].includes(p.style);}
+export function diamondPath(x:number,y:number,size=INSTANT_MARKER_SIZE):string {
+  const r=size/2;return `M ${x},${y-r} L ${x+r},${y} L ${x},${y+r} L ${x-r},${y} Z`;
+}
 export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:number;max:number},width:number,styles:Record<string,DisplayStyle>):RowLayout {
   const items:PlacedItem[]=[],diagnostics:Diagnostic[]=[],lanes:Lane[]=[];
   const x=(n:number)=>24+(n-bounds.min)/Math.max(1/366,bounds.max-bounds.min)*(width-48);
@@ -58,7 +66,9 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
   const anchorHalf=Math.max(20,...anchors.map(p=>p.half));
   const bands=items.filter(p=>p.style==='band'&&p.layer.bandPlacement!=='context');
   const maxHalf=Math.max(anchorHalf,...bands.map(p=>p.layer.bandShape==='contour'?p.half:Math.max(p.half,anchorHalf+12)));
-  const laneStep=Math.max(192,maxHalf*2+80),firstY=Math.max(134,maxHalf+104);
+  // One-third tighter than the previous lane spacing, with a safety floor for
+  // unusually tall user-configured categories. Text and shape sizes do not scale.
+  const laneStep=Math.max(Math.max(192,maxHalf*2+80)*2/3,maxHalf*2+24),firstY=Math.max(134,maxHalf+104);
   let nextY=firstY;
   const assign=(p:PlacedItem):number=>{const cs=children(p);p.y=cs.length?cs.reduce((s,c)=>s+assign(c),0)/cs.length:nextY; if(!cs.length)nextY+=laneStep;return p.y;};
   ordered(anchors.filter(p=>!parents.has(p))).forEach(assign);
@@ -141,8 +151,24 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
   }
   // Clusters are hit-target groups, never discarded records. Geometry above remains stable.
   const clusters:Cluster[]=[];
+  // Nearby date-pinned diamonds fan vertically, never horizontally. Crowded
+  // overflow stays explicit and selectable instead of obscuring its neighbors.
+  const pointLanes=new Map<string,PlacedItem[]>();
+  for(const p of ordinary.filter(isInstantItem)){const list=pointLanes.get(p.laneId)||[];list.push(p);pointLanes.set(p.laneId,list);}
+  for(const group of pointLanes.values()){
+    let bucket:PlacedItem[]=[];
+    const flush=()=>{
+      if(!bucket.length)return;
+      const slots=Math.min(3,bucket.length),offsets=slots===1?[0]:slots===2?[-10,10]:[-20,0,20];
+      const cy=centerAt(bucket[0].curve,bucket[0].x);
+      bucket.forEach((p,i)=>{p.markerOffset=cy+offsets[Math.min(i,2)]-centerAt(p.curve,p.x);p.markerHitHeight=slots===1?44:20;});
+      if(bucket.length>3){const overflow=bucket.slice(2);overflow.forEach(p=>p.clustered=true);clusters.push({key:`point-cluster:${overflow[0].key}`,x:overflow[0].x,y:cy+20,items:overflow});}
+      bucket=[];
+    };
+    for(const p of group.sort((a,b)=>a.x-b.x||chronological(a,b))){if(bucket.length&&(p.x-bucket[0].x>22||Math.abs(centerAt(p.curve,p.x)-centerAt(bucket[0].curve,bucket[0].x))>22))flush();bucket.push(p);}flush();
+  }
   const clusterGroups=new Map<string,PlacedItem[]>();
-  for(const p of ordinary.filter(p=>p.style!=='band')){
+  for(const p of ordinary.filter(p=>p.style!=='band'&&!isInstantItem(p))){
     if(p.style!=='dot'&&!p.clustered&&p.xEnd-p.x>=12)continue;
     const key=`${p.laneId}/${p.style==='dot'?'points':'small'}`;
     const list=clusterGroups.get(key)||[];list.push(p);clusterGroups.set(key,list);
@@ -169,8 +195,8 @@ export function placeLabels(items:PlacedItem[],width:number,measure:(text:string
   for(const p of [...items].sort((a,b)=>Number(b.isAnchor)-Number(a.isAnchor)||chronological(a,b))){
     if(!['adaptive','always'].includes(p.layer.labels))continue;
     const category=p.integratedAnchors?.length&&p.layer.bandShape!=='contour';
-    const sx=p.isAnchor?Math.min(p.xEnd-4,p.curve.settle+10):category?Math.max(p.x,p.integratedAnchors![0].x)+8:p.x+2;
-    const sy=centerAt(p.curve,sx);
+    const sx=p.isAnchor?Math.min(p.xEnd-4,p.curve.settle+10):category?Math.max(p.x,p.integratedAnchors![0].x)+8:isInstantItem(p)?p.x:p.x+2;
+    const sy=centerAt(p.curve,sx)+(isInstantItem(p)?p.markerOffset||0:0);
     const available=Math.max(28,p.xEnd-sx-8);
     const preferred=p.isAnchor||p.integratedAnchors?.length?Math.min(340,available):Math.min(170,Math.max(60,available));
     const anchor=anchors.find(a=>a.key===p.anchorKey);
