@@ -1,6 +1,6 @@
 import type {TimelineRecord} from './types';
 import type {TimelineRow,TimelineLayer,DisplayStyle} from './composition';
-import {matches,styleFor} from './composition';
+import {matches,styleFor,displayHeight} from './composition';
 import {historicalDate} from './dates';
 
 export interface Diagnostic {record:TimelineRecord; message:string;}
@@ -36,7 +36,8 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
     const start=historicalDate(record.date.start),end=historicalDate(record.date.end||record.date.start);
     if(!Number.isFinite(start)||!Number.isFinite(end)||end<start){diagnostics.push({record,message:'Invalid or reversed date range'});continue;}
     const style=styleFor(record,layer,styles),isAnchor=!layer.attachment&&(style==='stream'||anchorLayers.has(layer.id));
-    items.push({key:`${layer.id}/${record.id}`,record,layer,style,start,end,x:x(start),xEnd:x(end),laneId:'',subtrack:0,y:0,curve:{start:0,settle:0,origin:0,target:0},isAnchor,half:isAnchor?28:5,initialHalf:28,terminal:true,clustered:false});
+    const half=displayHeight(layer,style,isAnchor)/2;
+    items.push({key:`${layer.id}/${record.id}`,record,layer,style,start,end,x:x(start),xEnd:x(end),laneId:'',subtrack:0,y:0,curve:{start:0,settle:0,origin:0,target:0},isAnchor,half,initialHalf:half,terminal:true,clustered:false});
   }
   items.sort(chronological);
   const anchors=items.filter(i=>i.isAnchor),parents=new Map<PlacedItem,PlacedItem>(),candidates=new Map<PlacedItem,Set<PlacedItem>>();
@@ -54,18 +55,22 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
   const ordered=(list:PlacedItem[])=>list.sort((a,b)=>{const rank=(p:PlacedItem)=>{const n=(row.anchorOrder||[]).indexOf(p.record.id);return n<0?Number.MAX_SAFE_INTEGER:n;};return rank(a)-rank(b)||chronological(a,b);});
   const children=(p:PlacedItem)=>ordered(anchors.filter(c=>parents.get(c)===p));
   // Fixed screen-space rails leave room for names, without creating historical lanes.
-  let nextY=134;
-  const assign=(p:PlacedItem):number=>{const cs=children(p);p.y=cs.length?cs.reduce((s,c)=>s+assign(c),0)/cs.length:nextY; if(!cs.length)nextY+=192;return p.y;};
+  const anchorHalf=Math.max(20,...anchors.map(p=>p.half));
+  const bands=items.filter(p=>p.style==='band'&&p.layer.bandPlacement!=='context');
+  const maxHalf=Math.max(anchorHalf,...bands.map(p=>p.layer.bandShape==='contour'?p.half:Math.max(p.half,anchorHalf+12)));
+  const laneStep=Math.max(192,maxHalf*2+80),firstY=Math.max(134,maxHalf+104);
+  let nextY=firstY;
+  const assign=(p:PlacedItem):number=>{const cs=children(p);p.y=cs.length?cs.reduce((s,c)=>s+assign(c),0)/cs.length:nextY; if(!cs.length)nextY+=laneStep;return p.y;};
   ordered(anchors.filter(p=>!parents.has(p))).forEach(assign);
   for(const a of anchors){
     const parent=parents.get(a),siblings=parent?children(parent):[],index=siblings.indexOf(a);
-    a.laneId=a.key;a.initialHalf=parent?28/siblings.length:28;a.terminal=children(a).length===0;
-    const origin=parent?parent.y-28+a.initialHalf+index*2*a.initialHalf:a.y;
+    a.laneId=a.key;a.initialHalf=parent?parent.half/siblings.length:a.half;a.terminal=children(a).length===0;
+    const origin=parent?parent.y-parent.half+a.initialHalf+index*2*a.initialHalf:a.y;
     a.curve={start:a.x,settle:a.x+Math.min(110,(a.xEnd-a.x)*.45),origin,target:a.y,initialScale:a.initialHalf/a.half};
     lanes.push({id:a.key,title:a.record.title,y:a.y});
   }
   const independent=new Map<string,Lane>();
-  const getLane=(key:string,title:string):Lane=>{let lane=independent.get(key);if(!lane){lane={id:key,title,y:nextY};nextY+=192;independent.set(key,lane);lanes.push(lane);}return lane;};
+  const getLane=(key:string,title:string):Lane=>{let lane=independent.get(key);if(!lane){lane={id:key,title,y:nextY};nextY+=laneStep;independent.set(key,lane);lanes.push(lane);}return lane;};
   // Stable layer IDs, not display order, determine the order of independent lanes.
   const ordinary=items.filter(i=>!i.isAnchor);
   for(const p of [...ordinary].sort((a,b)=>a.layer.id.localeCompare(b.layer.id)||chronological(a,b))){
@@ -109,9 +114,10 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
     if(!p.anchor)p.curve={start:p.x,settle:p.x,origin:p.y,target:p.y};
   }
   const contexts=new Map<string,number>();
-  const contextTop=Math.max(152,nextY-192+152);
+  let contextBottom=Math.max(152,nextY-laneStep+Math.max(152,maxHalf+120));
   for(const p of ordinary.filter(p=>p.context)){
-    if(!contexts.has(p.layer.id))contexts.set(p.layer.id,contextTop+contexts.size*48);
+    p.half=displayHeight({...p.layer,bandPlacement:'context'},'band')/2;
+    if(!contexts.has(p.layer.id)){contexts.set(p.layer.id,contextBottom+p.half);contextBottom+=p.half*2+16;}
     p.laneId=`context:${p.layer.id}`;p.y=contexts.get(p.layer.id)!;
     p.curve={start:p.x,settle:p.x,origin:p.y,target:p.y};
   }
@@ -128,7 +134,8 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
     if(!instant){tracks[track]=p.end;ends.set(key,tracks);}
     p.subtrack=track;p.clustered=track>=maxTracks;
     const visibleTrack=Math.min(track,maxTracks-1);
-    const spacing=Math.min(10,20/Math.max(1,Math.ceil((maxTracks-1)/2)));
+    const containing=anchors.find(a=>a.key===p.anchorKey);
+    const spacing=Math.min(10,Math.max(0,(containing?.half||20)-p.half-2)/Math.max(1,Math.ceil((maxTracks-1)/2)));
     const offset=p.style==='dot'?0:visibleTrack===0?0:(visibleTrack%2?-1:1)*Math.ceil(visibleTrack/2)*spacing;
     p.curve={...p.curve,offset,initialScale:p.style==='dot'?1:p.curve.initialScale};p.y+=offset;
   }
@@ -145,7 +152,7 @@ export function layoutRow(row:TimelineRow,records:TimelineRecord[],bounds:{min:n
     const flush=()=>{if(bucket.length>1||bucket[0]?.clustered){bucket.forEach(p=>p.clustered=true);const first=bucket[0];clusters.push({key:`cluster:${first.key}`,x:first.x,y:centerAt(first.curve,first.x),items:[...bucket]});}bucket=[];};
     for(const p of sorted){if(bucket.length&&p.x-bucket[0].x>32)flush();bucket.push(p);}flush();
   }
-  const height=Math.max(row.height,nextY===134?160:nextY-192+138,contexts.size?contextTop+(contexts.size-1)*48+32:0);
+  const height=Math.max(row.height,nextY===firstY?160:nextY-laneStep+Math.max(138,maxHalf+104),contexts.size?contextBottom:0);
   return {items,lanes,clusters,height,diagnostics};
 }
 /** Fixed name rails and orthogonal leaders never change historical geometry. */
@@ -161,20 +168,23 @@ export function placeLabels(items:PlacedItem[],width:number,measure:(text:string
   const collision=(b:LabelBox)=>boxes.some(a=>b.x<a.x+a.width+6&&b.x+b.width+6>a.x&&b.y<a.y+a.height+3&&b.y+b.height+3>a.y);
   for(const p of [...items].sort((a,b)=>Number(b.isAnchor)-Number(a.isAnchor)||chronological(a,b))){
     if(!['adaptive','always'].includes(p.layer.labels))continue;
-    const sx=p.isAnchor?Math.min(p.xEnd-4,p.curve.settle+10):p.x+2;
+    const category=p.integratedAnchors?.length&&p.layer.bandShape!=='contour';
+    const sx=p.isAnchor?Math.min(p.xEnd-4,p.curve.settle+10):category?Math.max(p.x,p.integratedAnchors![0].x)+8:p.x+2;
     const sy=centerAt(p.curve,sx);
     const available=Math.max(28,p.xEnd-sx-8);
     const preferred=p.isAnchor||p.integratedAnchors?.length?Math.min(340,available):Math.min(170,Math.max(60,available));
     const anchor=anchors.find(a=>a.key===p.anchorKey);
+    const clearance=anchor?Math.max(anchor.half,...items.filter(i=>i.integratedAnchors?.includes(anchor)&&i.layer.bandShape!=='contour').map(i=>categoryHalf(i,anchor))):p.half;
     // Keep callouts in their own kingdom's text rail, never in the other branch.
-    const rail=p.integratedAnchors?.length?[sy+9,sy-22]
+    const rail=category?[sy-categoryHalf(p,p.integratedAnchors![0])+7]
+      :p.integratedAnchors?.length?[sy+9,sy-22]
       : p.context?[p.y-7]
       : anchor&&minAnchor!==maxAnchor&&anchor.y===minAnchor
-      ? [anchor.y-54,anchor.y-76,anchor.y-98,anchor.y-120]
+      ? [anchor.y-clearance-30,anchor.y-clearance-52,anchor.y-clearance-74,anchor.y-clearance-96]
       : anchor&&minAnchor!==maxAnchor&&anchor.y===maxAnchor
-        ? [anchor.y+40,anchor.y+62,anchor.y+84,anchor.y+106]
-        : p.isAnchor?[sy+9]
-          : [sy-54,sy-76,sy-98,sy-120];
+        ? [anchor.y+clearance+10,anchor.y+clearance+32,anchor.y+clearance+54,anchor.y+clearance+76]
+        : p.isAnchor?[sy+p.half+7]
+          : [sy-clearance-30,sy-clearance-52,sy-clearance-74,sy-clearance-96];
     const kind=p.isAnchor?'anchor':p.context||p.integratedAnchors?.length?'context':'record';
     let placed=false;
     for(const budget of [preferred,Math.min(preferred,100),Math.min(preferred,68),40,34]){
@@ -228,11 +238,24 @@ export function ribbonPath(p:PlacedItem):string {
   return curvePath(p,-1)+` L ${p.xEnd},${lower(p.xEnd)} `+breaks.slice(1).map((x,i)=>cubicSection(breaks[i],x,lower)).join(' ')+' Z';
 }
 
-export interface IntegratedBandSegment {anchor:PlacedItem;kind:'overlay'|'continuation';path:string;from:number;to:number;}
-/** A context reuses the exact stream contour. It never lengthens a source record. */
+export interface IntegratedBandSegment {anchor:PlacedItem;kind:'overlay'|'continuation'|'category';path:string;from:number;to:number;rect?:{x:number;y:number;width:number;height:number};}
+/** A category remains taller than its related stream, even with custom layer heights. */
+export function categoryHalf(band:PlacedItem,anchor:PlacedItem):number {return Math.max(band.half,anchor.half+12);}
+/** Independent category bounds share the stream centerline, never its source end date. */
 export function integratedBandSegments(band:PlacedItem):IntegratedBandSegment[]{
   const result:IntegratedBandSegment[]=[];
   for(const anchor of band.integratedAnchors||[]){
+    if(band.layer.bandShape!=='contour'){
+      const from=Math.max(band.x,anchor.x),to=band.xEnd;
+      if(to<from)continue;
+      const half=categoryHalf(band,anchor),curve={...anchor.curve,offset:0};
+      const box:PlacedItem={...band,integratedAnchors:undefined,anchor:undefined,x:from,xEnd:to,half,initialHalf:half,isAnchor:false,terminal:false,curve};
+      // Flat portions are actual rounded rectangles; a category crossing a fork
+      // follows the same exact curve until the stream settles into its lane.
+      const flat=from>=curve.settle||curve.origin===curve.target;
+      result.push({anchor,kind:'category',path:ribbonPath(box),from,to,...(flat?{rect:{x:from,y:centerAt(curve,from)-half,width:Math.max(2,to-from),height:half*2}}:{})});
+      continue;
+    }
     const from=Math.max(band.x,anchor.x),to=Math.min(band.xEnd,anchor.xEnd);
     if(to>from)result.push({anchor,kind:'overlay',path:ribbonPath(anchor),from,to});
     const tailStart=Math.max(band.x,anchor.xEnd);

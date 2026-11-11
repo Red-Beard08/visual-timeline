@@ -78,7 +78,7 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
       for(const y of [...new Set(layout.items.filter(p=>p.context).map(p=>p.y))]){
         svg.appendChild(element('line',{x1:0,x2:plotWidth,y1:y-22,y2:y-22,class:'vt-context-rule'}));
       }
-      const z=(p:PlacedItem)=>(p.integratedAnchors?.length?5000:p.layer.plane==='background'?0:10000)+row.layers.indexOf(p.layer);
+      const z=(p:PlacedItem)=>(p.integratedAnchors?.length?(p.layer.bandShape==='contour'?5000:-10000):p.layer.plane==='background'?0:10000)+row.layers.indexOf(p.layer);
       const shapeGroup=(items:PlacedItem[],x:number,y:number,cluster=false)=>{
         const p=items[0],g=element('g',{class:'vt-composed-record',tabindex:0,role:'button','aria-label':cluster?`${items.length} items; select to list`:p.record.title,'data-key':p.key,'data-records':items.map(i=>i.record.id).join('|'),'data-lane':p.laneId,'data-track':p.subtrack});
         const full=cluster?`${items.length} items`: `${p.record.title} · ${p.record.date.display||p.record.date.start}`;
@@ -96,6 +96,11 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
         const attrs={fill:color,opacity:p.layer.opacity};
         if(p.integratedAnchors?.length){
           for(const segment of integratedBandSegments(p)){
+            if(segment.kind==='category'){
+              const attrs={fill:p.layer.color,'fill-opacity':p.layer.opacity*.18,stroke:p.layer.color,'stroke-opacity':.8,'stroke-width':1,'stroke-dasharray':'5 4',class:'vt-integrated-band vt-category-box','data-anchor':segment.anchor.record.id,'data-from':segment.from,'data-to':segment.to};
+              g.appendChild(segment.rect?element('rect',{...attrs,...segment.rect,rx:6}):element('path',{...attrs,d:segment.path}));
+              continue;
+            }
             const id=`vt-integrated-band-${++nextClipId}`;
             const clip=element('clipPath',{id,clipPathUnits:'userSpaceOnUse'});
             clip.appendChild(element('rect',{x:segment.from,y:0,width:segment.to-segment.from,height:layout.height}));svg.appendChild(clip);
@@ -106,7 +111,7 @@ export function renderComposition(parent:HTMLElement,view:Composition,settings:C
           else g.appendChild(element('path',{...attrs,d:ribbonPath(p),class:p.isAnchor?'vt-anchor-shape':'vt-duration-shape'}));
         }else if(p.style==='dot')g.appendChild(element('circle',{...attrs,cx:x,cy:y,r:5}));
         else if(p.style==='line')g.appendChild(element('path',{d:curvePath(p),stroke:p.layer.color,'stroke-width':2,fill:'none',opacity:p.layer.opacity}));
-        else g.appendChild(element('rect',{...attrs,opacity:p.context?p.layer.opacity*.18:p.layer.opacity,x,y:y-(p.context?16:28),width:Math.max(2,p.xEnd-x),height:p.context?32:56,rx:p.context?4:0,class:'vt-context-band'}));
+        else g.appendChild(element('rect',{...attrs,opacity:p.context?p.layer.opacity*.18:p.layer.opacity,x,y:y-p.half,width:Math.max(2,p.xEnd-x),height:p.half*2,rx:p.context?4:6,class:'vt-context-band'}));
         if(!p.isAnchor&&p.style!=='band')g.appendChild(element('path',{d:curvePath(p),stroke:'transparent','stroke-width':20,fill:'none',class:'vt-hit-area'}));
         if(!p.isAnchor&&['box','stream','line'].includes(p.style))for(const boundary of [...new Set([p.x,p.xEnd])]){
           const cy=centerAt(p.curve,boundary),half=halfAt(p,boundary)+2;

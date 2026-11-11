@@ -14,6 +14,15 @@ const count=await page.evaluate(()=>new Set([...document.querySelectorAll('[data
 const expectedNames=new Set(config.views[0].rows.flatMap(row=>row.layers.filter(l=>['adaptive','always'].includes(l.labels)).flatMap(l=>records.filter(r=>l.types.includes(r.type)&&(!l.categories.length||l.categories.some(c=>r.categories.includes(c)))).map(r=>r.id)))).size;
 assert.equal(await page.locator('.vt-adaptive-label').count(),expectedNames,'Every named record needs a visible label, including cluster members');
 const heights=await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height));
+const categories=page.locator('.vt-category-box');
+assert.ok(await categories.count()>0,'Integrated era must render as taller category boxes');
+const categoryBounds=await categories.evaluateAll(es=>es.map(e=>({anchor:e.getAttribute('data-anchor'),tag:e.tagName,height:e.getBBox().height,y:e.getBBox().y,from:e.getAttribute('data-from'),to:e.getAttribute('data-to')})));
+assert.ok(categoryBounds.every(b=>b.tag==='rect'&&b.height===88),'Settled category boxes use independent 88px rectangles');
+assert.equal(new Set(categoryBounds.map(b=>b.anchor)).size,2,'The same era follows both explicitly related kingdoms');
+const categoryKey=await categories.first().evaluate(e=>e.parentElement.getAttribute('data-key'));
+await page.locator('.vt-category-box').first().evaluate(e=>e.parentElement.focus());await page.keyboard.press('Enter');
+assert.ok(await page.locator('.vt-inspector').isVisible());assert.match(await page.locator('.vt-inspector h3').textContent(),/Exile/i);
+await page.keyboard.press('Escape');
 const wheelState=()=>page.locator('.vt-chart-scroll').evaluate(e=>{
   const width=Number(e.querySelector('.vt-composition-svg').getAttribute('width')),pointer=e.clientWidth*.6;
   return {width,top:e.scrollTop,date:(e.scrollLeft+pointer-Number(e.closest('.vt-chart').dataset.gutter)-24)/(width-48)};
@@ -52,6 +61,7 @@ await page.evaluate(id=>chart.setVisible(new Set([id])),records[0].id);assert.eq
 await page.evaluate(rs=>chart.setVisible(new Set(rs.map(r=>r.id))),records);
 assert.deepEqual(await page.locator('[data-records]').evaluateAll(es=>Object.fromEntries(es.map(e=>[e.getAttribute('data-key'),[e.getAttribute('data-lane'),e.getAttribute('data-track')]]))),laneBefore);
 await page.getByRole('button',{name:'Zoom in',exact:true}).click();assert.deepEqual(await page.locator('.vt-row-strip').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height)),heights);
+assert.deepEqual(await categories.evaluateAll(es=>es.map(e=>[e.getBBox().height,e.getBBox().y])),categoryBounds.map(b=>[b.height,b.y]),'Category heights and centers remain fixed during zoom');
 const panBox=await page.locator('.vt-chart-scroll').boundingBox(),panX=panBox.x+450,panY=panBox.y+60;
 const panStart=await page.locator('.vt-chart-scroll').evaluate(e=>e.scrollLeft);
 await page.mouse.move(panX,panY);await page.mouse.down();await page.mouse.move(panX-100,panY,{steps:5});
@@ -79,6 +89,6 @@ assert.equal(await page.locator('.vt-adaptive-label').count(),expectedNames,'Nar
 await page.locator('.vt-composed-record').first().focus();await page.keyboard.press('Enter');await page.screenshot({path:path.join(process.env.TEMP,'timeline-v140-mobile.png'),fullPage:true});
 assert.ok(await page.getByRole('button',{name:'Close',exact:true}).isVisible());await page.getByRole('button',{name:'Close',exact:true}).click();
 await page.locator('.vt-chart-scroll').evaluate(e=>{e.scrollTop=100;e.scrollLeft=100;});const sticky=await page.evaluate(()=>{const frame=document.querySelector('.vt-chart-scroll').getBoundingClientRect(),axis=document.querySelector('.vt-sticky-axis').getBoundingClientRect();return Math.abs(axis.top-frame.top);});assert.ok(sticky<=2);
-console.log(JSON.stringify({covered:count,heights,labelOverlaps:overlaps,desktop:true,narrow:true,selection:true,filterStability:true,stickyAxis:true}));
+console.log(JSON.stringify({covered:count,heights,labelOverlaps:overlaps,categoryBounds,categorySelection:true,desktop:true,narrow:true,selection:true,filterStability:true,stickyAxis:true}));
 }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1);});

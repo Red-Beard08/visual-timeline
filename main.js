@@ -242,6 +242,11 @@ var import_obsidian3 = require("obsidian");
 
 // src/composition.ts
 var STYLES = ["stream", "line", "dot", "box", "band"];
+var SHAPE_HEIGHTS = { category: 88, stream: 40, item: 14, context: 32 };
+function displayHeight(layer, style, isAnchor = false) {
+  if (typeof layer.height === "number" && Number.isFinite(layer.height)) return Math.max(8, Math.min(240, layer.height));
+  return style === "band" ? layer.bandPlacement === "lane" || layer.bandPlacement === "integrated" ? SHAPE_HEIGHTS.category : SHAPE_HEIGHTS.context : isAnchor ? SHAPE_HEIGHTS.stream : SHAPE_HEIGHTS.item;
+}
 function contrastText(color) {
   const channels = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255).map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
   const luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
@@ -249,7 +254,7 @@ function contrastText(color) {
 }
 var uid = () => `view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 function newLayer(name = "New layer", type = "") {
-  return { id: uid(), name, enabled: true, types: type ? [`visual-timeline-${type}`] : [], categories: [], tags: [], style: "default", plane: "foreground", opacity: 1, color: "#659fa0", labels: "adaptive", bandPlacement: "context", tintFromAttached: false };
+  return { id: uid(), name, enabled: true, types: type ? [`visual-timeline-${type}`] : [], categories: [], tags: [], style: "default", plane: "foreground", opacity: 1, color: "#659fa0", labels: "adaptive", bandPlacement: "context", bandShape: "box", tintFromAttached: false };
 }
 function newRow(name = "New row", layers = []) {
   return { id: uid(), name, height: 220, enabled: true, layers, anchorOrder: [], maxSubtracks: 3 };
@@ -281,6 +286,8 @@ function normalizeComposition(value) {
     const stored = (_d = (_c = (_b = (_a = raw.views.find((v) => v.id === view.id)) == null ? void 0 : _a.rows) == null ? void 0 : _b.find((r) => r.id === row.id)) == null ? void 0 : _c.layers) == null ? void 0 : _d.find((l) => l.id === layer.id);
     layer.bandPlacement = (stored == null ? void 0 : stored.bandPlacement) === "integrated" ? "integrated" : (stored == null ? void 0 : stored.bandPlacement) === "lane" ? "lane" : "context";
     layer.tintFromAttached = (stored == null ? void 0 : stored.tintFromAttached) === true;
+    layer.bandShape = (stored == null ? void 0 : stored.bandShape) === "contour" ? "contour" : "box";
+    if (typeof (stored == null ? void 0 : stored.height) === "number" && Number.isFinite(stored.height)) layer.height = finite(stored.height, SHAPE_HEIGHTS.item, 8, 240);
   }
   const categoryStyles = {};
   for (const [key, style] of Object.entries(raw.categoryStyles || {})) if (STYLES.includes(style)) categoryStyles[key] = style;
@@ -331,7 +338,8 @@ function layoutRow(row, records, bounds, width, styles) {
       continue;
     }
     const style = styleFor(record, layer, styles), isAnchor = !layer.attachment && (style === "stream" || anchorLayers.has(layer.id));
-    items.push({ key: `${layer.id}/${record.id}`, record, layer, style, start, end, x: x(start), xEnd: x(end), laneId: "", subtrack: 0, y: 0, curve: { start: 0, settle: 0, origin: 0, target: 0 }, isAnchor, half: isAnchor ? 28 : 5, initialHalf: 28, terminal: true, clustered: false });
+    const half = displayHeight(layer, style, isAnchor) / 2;
+    items.push({ key: `${layer.id}/${record.id}`, record, layer, style, start, end, x: x(start), xEnd: x(end), laneId: "", subtrack: 0, y: 0, curve: { start: 0, settle: 0, origin: 0, target: 0 }, isAnchor, half, initialHalf: half, terminal: true, clustered: false });
   }
   items.sort(chronological);
   const anchors = items.filter((i) => i.isAnchor), parents = /* @__PURE__ */ new Map(), candidates = /* @__PURE__ */ new Map();
@@ -386,20 +394,24 @@ function layoutRow(row, records, bounds, width, styles) {
     return rank(a) - rank(b) || chronological(a, b);
   });
   const children = (p) => ordered(anchors.filter((c) => parents.get(c) === p));
-  let nextY = 134;
+  const anchorHalf = Math.max(20, ...anchors.map((p) => p.half));
+  const bands = items.filter((p) => p.style === "band" && p.layer.bandPlacement !== "context");
+  const maxHalf = Math.max(anchorHalf, ...bands.map((p) => p.layer.bandShape === "contour" ? p.half : Math.max(p.half, anchorHalf + 12)));
+  const laneStep = Math.max(192, maxHalf * 2 + 80), firstY = Math.max(134, maxHalf + 104);
+  let nextY = firstY;
   const assign = (p) => {
     const cs = children(p);
     p.y = cs.length ? cs.reduce((s, c) => s + assign(c), 0) / cs.length : nextY;
-    if (!cs.length) nextY += 192;
+    if (!cs.length) nextY += laneStep;
     return p.y;
   };
   ordered(anchors.filter((p) => !parents.has(p))).forEach(assign);
   for (const a of anchors) {
     const parent = parents.get(a), siblings = parent ? children(parent) : [], index = siblings.indexOf(a);
     a.laneId = a.key;
-    a.initialHalf = parent ? 28 / siblings.length : 28;
+    a.initialHalf = parent ? parent.half / siblings.length : a.half;
     a.terminal = children(a).length === 0;
-    const origin = parent ? parent.y - 28 + a.initialHalf + index * 2 * a.initialHalf : a.y;
+    const origin = parent ? parent.y - parent.half + a.initialHalf + index * 2 * a.initialHalf : a.y;
     a.curve = { start: a.x, settle: a.x + Math.min(110, (a.xEnd - a.x) * 0.45), origin, target: a.y, initialScale: a.initialHalf / a.half };
     lanes.push({ id: a.key, title: a.record.title, y: a.y });
   }
@@ -408,7 +420,7 @@ function layoutRow(row, records, bounds, width, styles) {
     let lane = independent.get(key);
     if (!lane) {
       lane = { id: key, title, y: nextY };
-      nextY += 192;
+      nextY += laneStep;
       independent.set(key, lane);
       lanes.push(lane);
     }
@@ -478,9 +490,13 @@ function layoutRow(row, records, bounds, width, styles) {
     if (!p.anchor) p.curve = { start: p.x, settle: p.x, origin: p.y, target: p.y };
   }
   const contexts = /* @__PURE__ */ new Map();
-  const contextTop = Math.max(152, nextY - 192 + 152);
+  let contextBottom = Math.max(152, nextY - laneStep + Math.max(152, maxHalf + 120));
   for (const p of ordinary.filter((p2) => p2.context)) {
-    if (!contexts.has(p.layer.id)) contexts.set(p.layer.id, contextTop + contexts.size * 48);
+    p.half = displayHeight({ ...p.layer, bandPlacement: "context" }, "band") / 2;
+    if (!contexts.has(p.layer.id)) {
+      contexts.set(p.layer.id, contextBottom + p.half);
+      contextBottom += p.half * 2 + 16;
+    }
     p.laneId = `context:${p.layer.id}`;
     p.y = contexts.get(p.layer.id);
     p.curve = { start: p.x, settle: p.x, origin: p.y, target: p.y };
@@ -500,7 +516,8 @@ function layoutRow(row, records, bounds, width, styles) {
     p.subtrack = track;
     p.clustered = track >= maxTracks;
     const visibleTrack = Math.min(track, maxTracks - 1);
-    const spacing = Math.min(10, 20 / Math.max(1, Math.ceil((maxTracks - 1) / 2)));
+    const containing = anchors.find((a) => a.key === p.anchorKey);
+    const spacing = Math.min(10, Math.max(0, ((containing == null ? void 0 : containing.half) || 20) - p.half - 2) / Math.max(1, Math.ceil((maxTracks - 1) / 2)));
     const offset = p.style === "dot" ? 0 : visibleTrack === 0 ? 0 : (visibleTrack % 2 ? -1 : 1) * Math.ceil(visibleTrack / 2) * spacing;
     p.curve = { ...p.curve, offset, initialScale: p.style === "dot" ? 1 : p.curve.initialScale };
     p.y += offset;
@@ -532,11 +549,11 @@ function layoutRow(row, records, bounds, width, styles) {
     }
     flush();
   }
-  const height = Math.max(row.height, nextY === 134 ? 160 : nextY - 192 + 138, contexts.size ? contextTop + (contexts.size - 1) * 48 + 32 : 0);
+  const height = Math.max(row.height, nextY === firstY ? 160 : nextY - laneStep + Math.max(138, maxHalf + 104), contexts.size ? contextBottom : 0);
   return { items, lanes, clusters, height, diagnostics };
 }
 function placeLabels(items, width, measure, height = 300) {
-  var _a, _b, _c;
+  var _a, _b, _c, _d;
   const boxes = [];
   const anchors = items.filter((p) => p.isAnchor);
   const minAnchor = Math.min(...anchors.map((p) => p.y)), maxAnchor = Math.max(...anchors.map((p) => p.y));
@@ -549,13 +566,18 @@ function placeLabels(items, width, measure, height = 300) {
   const collision = (b) => boxes.some((a) => b.x < a.x + a.width + 6 && b.x + b.width + 6 > a.x && b.y < a.y + a.height + 3 && b.y + b.height + 3 > a.y);
   for (const p of [...items].sort((a, b) => Number(b.isAnchor) - Number(a.isAnchor) || chronological(a, b))) {
     if (!["adaptive", "always"].includes(p.layer.labels)) continue;
-    const sx = p.isAnchor ? Math.min(p.xEnd - 4, p.curve.settle + 10) : p.x + 2;
+    const category = ((_a = p.integratedAnchors) == null ? void 0 : _a.length) && p.layer.bandShape !== "contour";
+    const sx = p.isAnchor ? Math.min(p.xEnd - 4, p.curve.settle + 10) : category ? Math.max(p.x, p.integratedAnchors[0].x) + 8 : p.x + 2;
     const sy = centerAt(p.curve, sx);
     const available = Math.max(28, p.xEnd - sx - 8);
-    const preferred = p.isAnchor || ((_a = p.integratedAnchors) == null ? void 0 : _a.length) ? Math.min(340, available) : Math.min(170, Math.max(60, available));
+    const preferred = p.isAnchor || ((_b = p.integratedAnchors) == null ? void 0 : _b.length) ? Math.min(340, available) : Math.min(170, Math.max(60, available));
     const anchor = anchors.find((a) => a.key === p.anchorKey);
-    const rail = ((_b = p.integratedAnchors) == null ? void 0 : _b.length) ? [sy + 9, sy - 22] : p.context ? [p.y - 7] : anchor && minAnchor !== maxAnchor && anchor.y === minAnchor ? [anchor.y - 54, anchor.y - 76, anchor.y - 98, anchor.y - 120] : anchor && minAnchor !== maxAnchor && anchor.y === maxAnchor ? [anchor.y + 40, anchor.y + 62, anchor.y + 84, anchor.y + 106] : p.isAnchor ? [sy + 9] : [sy - 54, sy - 76, sy - 98, sy - 120];
-    const kind = p.isAnchor ? "anchor" : p.context || ((_c = p.integratedAnchors) == null ? void 0 : _c.length) ? "context" : "record";
+    const clearance = anchor ? Math.max(anchor.half, ...items.filter((i) => {
+      var _a2;
+      return ((_a2 = i.integratedAnchors) == null ? void 0 : _a2.includes(anchor)) && i.layer.bandShape !== "contour";
+    }).map((i) => categoryHalf(i, anchor))) : p.half;
+    const rail = category ? [sy - categoryHalf(p, p.integratedAnchors[0]) + 7] : ((_c = p.integratedAnchors) == null ? void 0 : _c.length) ? [sy + 9, sy - 22] : p.context ? [p.y - 7] : anchor && minAnchor !== maxAnchor && anchor.y === minAnchor ? [anchor.y - clearance - 30, anchor.y - clearance - 52, anchor.y - clearance - 74, anchor.y - clearance - 96] : anchor && minAnchor !== maxAnchor && anchor.y === maxAnchor ? [anchor.y + clearance + 10, anchor.y + clearance + 32, anchor.y + clearance + 54, anchor.y + clearance + 76] : p.isAnchor ? [sy + p.half + 7] : [sy - clearance - 30, sy - clearance - 52, sy - clearance - 74, sy - clearance - 96];
+    const kind = p.isAnchor ? "anchor" : p.context || ((_d = p.integratedAnchors) == null ? void 0 : _d.length) ? "context" : "record";
     let placed = false;
     for (const budget of [preferred, Math.min(preferred, 100), Math.min(preferred, 68), 40, 34]) {
       const name = truncate(p.record.title, Math.min(budget, width - 12)), w = measure(name);
@@ -612,9 +634,21 @@ function ribbonPath(p) {
   const lower = (x) => centerAt(p.curve, x) + halfAt(p, x);
   return curvePath(p, -1) + ` L ${p.xEnd},${lower(p.xEnd)} ` + breaks.slice(1).map((x, i) => cubicSection(breaks[i], x, lower)).join(" ") + " Z";
 }
+function categoryHalf(band, anchor) {
+  return Math.max(band.half, anchor.half + 12);
+}
 function integratedBandSegments(band) {
   const result = [];
   for (const anchor of band.integratedAnchors || []) {
+    if (band.layer.bandShape !== "contour") {
+      const from2 = Math.max(band.x, anchor.x), to2 = band.xEnd;
+      if (to2 < from2) continue;
+      const half = categoryHalf(band, anchor), curve = { ...anchor.curve, offset: 0 };
+      const box = { ...band, integratedAnchors: void 0, anchor: void 0, x: from2, xEnd: to2, half, initialHalf: half, isAnchor: false, terminal: false, curve };
+      const flat = from2 >= curve.settle || curve.origin === curve.target;
+      result.push({ anchor, kind: "category", path: ribbonPath(box), from: from2, to: to2, ...flat ? { rect: { x: from2, y: centerAt(curve, from2) - half, width: Math.max(2, to2 - from2), height: half * 2 } } : {} });
+      continue;
+    }
     const from = Math.max(band.x, anchor.x), to = Math.min(band.xEnd, anchor.xEnd);
     if (to > from) result.push({ anchor, kind: "overlay", path: ribbonPath(anchor), from, to });
     const tailStart = Math.max(band.x, anchor.xEnd);
@@ -830,7 +864,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
       }
       const z = (p) => {
         var _a2;
-        return (((_a2 = p.integratedAnchors) == null ? void 0 : _a2.length) ? 5e3 : p.layer.plane === "background" ? 0 : 1e4) + row.layers.indexOf(p.layer);
+        return (((_a2 = p.integratedAnchors) == null ? void 0 : _a2.length) ? p.layer.bandShape === "contour" ? 5e3 : -1e4 : p.layer.plane === "background" ? 0 : 1e4) + row.layers.indexOf(p.layer);
       };
       const shapeGroup = (items, x, y, cluster = false) => {
         const p = items[0], g = element("g", { class: "vt-composed-record", tabindex: 0, role: "button", "aria-label": cluster ? `${items.length} items; select to list` : p.record.title, "data-key": p.key, "data-records": items.map((i) => i.record.id).join("|"), "data-lane": p.laneId, "data-track": p.subtrack });
@@ -869,6 +903,11 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
         const attrs = { fill: color, opacity: p.layer.opacity };
         if ((_a = p.integratedAnchors) == null ? void 0 : _a.length) {
           for (const segment of integratedBandSegments(p)) {
+            if (segment.kind === "category") {
+              const attrs2 = { fill: p.layer.color, "fill-opacity": p.layer.opacity * 0.18, stroke: p.layer.color, "stroke-opacity": 0.8, "stroke-width": 1, "stroke-dasharray": "5 4", class: "vt-integrated-band vt-category-box", "data-anchor": segment.anchor.record.id, "data-from": segment.from, "data-to": segment.to };
+              g.appendChild(segment.rect ? element("rect", { ...attrs2, ...segment.rect, rx: 6 }) : element("path", { ...attrs2, d: segment.path }));
+              continue;
+            }
             const id2 = `vt-integrated-band-${++nextClipId}`;
             const clip = element("clipPath", { id: id2, clipPathUnits: "userSpaceOnUse" });
             clip.appendChild(element("rect", { x: segment.from, y: 0, width: segment.to - segment.from, height: layout.height }));
@@ -880,7 +919,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
           else g.appendChild(element("path", { ...attrs, d: ribbonPath(p), class: p.isAnchor ? "vt-anchor-shape" : "vt-duration-shape" }));
         } else if (p.style === "dot") g.appendChild(element("circle", { ...attrs, cx: x, cy: y, r: 5 }));
         else if (p.style === "line") g.appendChild(element("path", { d: curvePath(p), stroke: p.layer.color, "stroke-width": 2, fill: "none", opacity: p.layer.opacity }));
-        else g.appendChild(element("rect", { ...attrs, opacity: p.context ? p.layer.opacity * 0.18 : p.layer.opacity, x, y: y - (p.context ? 16 : 28), width: Math.max(2, p.xEnd - x), height: p.context ? 32 : 56, rx: p.context ? 4 : 0, class: "vt-context-band" }));
+        else g.appendChild(element("rect", { ...attrs, opacity: p.context ? p.layer.opacity * 0.18 : p.layer.opacity, x, y: y - p.half, width: Math.max(2, p.xEnd - x), height: p.half * 2, rx: p.context ? 4 : 6, class: "vt-context-band" }));
         if (!p.isAnchor && p.style !== "band") g.appendChild(element("path", { d: curvePath(p), stroke: "transparent", "stroke-width": 20, fill: "none", class: "vt-hit-area" }));
         if (!p.isAnchor && ["box", "stream", "line"].includes(p.style)) for (const boundary of [.../* @__PURE__ */ new Set([p.x, p.xEnd])]) {
           const cy = centerAt(p.curve, boundary), half = halfAt(p, boundary) + 2;
@@ -1355,7 +1394,18 @@ var CompositionModal = class extends import_obsidian5.Modal {
           d.setValue(layer.style).onChange((v) => layer.style = v);
         });
         new import_obsidian5.Setting(details).setName("Placement").addDropdown((d) => d.addOption("background", "Background").addOption("foreground", "Foreground").setValue(layer.plane).onChange((v) => layer.plane = v));
-        new import_obsidian5.Setting(details).setName("Band layout").setDesc("Integrated bands tint explicitly related streams, with dashed context continuations after a stream ends. Multiple related streams are supported; kingdom dates never change.").addDropdown((d) => d.addOption("integrated", "Integrated with related streams").addOption("context", "Separate context strip").addOption("lane", "Behind the assigned lane").setValue(layer.bandPlacement || "context").onChange((v) => layer.bandPlacement = v));
+        new import_obsidian5.Setting(details).setName("Band layout").setDesc("Integrated categories share their related streams\u2019 centerlines. Their own dates set the box boundaries; kingdom and ruler dates never change.").addDropdown((d) => d.addOption("integrated", "Integrated with related streams").addOption("context", "Separate context strip").addOption("lane", "Behind the assigned lane").setValue(layer.bandPlacement || "context").onChange((v) => layer.bandPlacement = v));
+        new import_obsidian5.Setting(details).setName("Integrated category shape").setDesc("A category box extends above and below the stream. Stream tint keeps the earlier contour-following treatment. Applies to integrated bands.").addDropdown((d) => d.addOption("box", "Category box \u2014 taller than stream").addOption("contour", "Stream tint and continuation").setValue(layer.bandShape || "box").onChange((v) => layer.bandShape = v));
+        new import_obsidian5.Setting(details).setName("Shape height (px)").setDesc("Leave blank for automatic: category 88, stream 40, item 14, context strip 32. Category boxes always leave at least 12px above and below their stream. Height never changes dates or zoom.").addText((t) => {
+          t.inputEl.type = "number";
+          t.inputEl.min = "8";
+          t.inputEl.max = "240";
+          t.inputEl.placeholder = "Automatic";
+          t.setValue(layer.height === void 0 ? "" : String(layer.height)).onChange((v) => {
+            if (!v.trim()) delete layer.height;
+            else if (Number.isFinite(Number(v))) layer.height = Math.max(8, Math.min(240, Number(v)));
+          });
+        });
         new import_obsidian5.Setting(details).setName("Tint streams from attached durations").setDesc("When every attached duration uses one color, use it for that anchor stream too. Mixed colors retain the stream layer color.").addToggle((t) => t.setValue(layer.tintFromAttached === true).onChange((v) => layer.tintFromAttached = v));
         new import_obsidian5.Setting(details).setName("Opacity").addSlider((s) => s.setLimits(10, 100, 5).setValue(layer.opacity * 100).setDynamicTooltip().onChange((v) => layer.opacity = v / 100));
         new import_obsidian5.Setting(details).setName("Color").addColorPicker((p) => p.setValue(layer.color).onChange((v) => layer.color = v));

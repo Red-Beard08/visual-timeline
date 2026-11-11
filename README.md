@@ -1,8 +1,14 @@
 # Visual Timeline
 
+## Taller category boxes (1.6)
+
+Integrated category bands now draw behind their related streams as taller boxes on the same centerline. The default visual hierarchy is **88px category box → 40px stream → 14px item bar**. A category can begin while a stream is still active and continue after it ends: its own dates set its box boundaries, while the kingdom and ruler records keep their original endpoints. One category may attach to several explicitly related streams without adding a new row.
+
+In **Configure timeline**, use **Band layout → Integrated with related streams** and **Integrated category shape → Category box — taller than stream**. Flat stretches use rounded rectangles; a category crossing a fork follows its anchor's actual curve until it settles. Choose **Stream tint and continuation** to keep the earlier contour treatment. The optional **Shape height (px)** field adjusts a layer without changing dates or horizontal zoom; blank restores automatic sizing. Category boxes always leave at least 12px above and below the associated stream. Existing layer IDs, filters, saved views, colors, notes and settings remain intact.
+
 ## Integrated context bands (1.5.1)
 
-Choose **Band layout → Integrated with related streams** to incorporate an era or other background context into the main flow. Explicit relationship references (or display overrides) select one or multiple anchor streams. The band tints their exact contours during the overlapping dates; it does not create another historical lane.
+Choose **Band layout → Integrated with related streams** to incorporate an era or other background context into the main flow. Explicit relationship references (or display overrides) select one or multiple anchor streams. Version 1.6 defaults to taller category boxes; the **Stream tint and continuation** shape retains the original contour behavior described below. Neither creates another historical lane.
 
 When the context outlasts a linked source record, a subdued dashed continuation stays on that stream's centerline until the context's own end date. Original kingdom endpoints and foreground event markers remain unchanged. The continuation represents the context record, not an inferred successor kingdom. Select its name or shaded area for the context's full note details. Ambiguous or missing references produce visible diagnostics while valid targets may still render. If none resolve, the band falls back to a separate strip rather than guessing an attachment. Existing separate-strip and lane modes remain available.
 

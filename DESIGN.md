@@ -53,6 +53,7 @@ typography:
     fontWeight: 700
 rounded:
   context: "4px"
+  category: "6px"
   frame: "8px"
   layer: "10px"
 spacing:
@@ -71,9 +72,22 @@ components:
   name-label:
     textColor: "{colors.text}"
     typography: "{typography.label}"
+  category-box:
+    backgroundColor: "{colors.default-layer}"
+    rounded: "{rounded.category}"
+    height: "88px"
+  stream-ribbon:
+    backgroundColor: "{colors.default-stream}"
+    height: "40px"
+  item-bar:
+    backgroundColor: "{colors.default-layer}"
+    height: "14px"
   context-band:
     rounded: "{rounded.context}"
     height: "32px"
+  lane-band:
+    rounded: "{rounded.category}"
+    height: "88px"
   selection-strip:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
@@ -91,14 +105,15 @@ components:
 
 **Creative North Star: "Historical continuity with disciplined adjacent name rails"**
 
-The built explorer preserves the user-approved flowing-stream direction and aligned-name-rail structure. Broad continuity ribbons lead; attached durations and their boundaries come next; adjacent names and selection supply individual detail. This is a native Obsidian tool, not an illustrated history poster or a separate branded application shell.
+The built explorer preserves the user-approved flowing-stream direction and aligned-name-rail structure. Broad continuity ribbons lead; attached durations and their boundaries come next; adjacent names and selection supply individual detail. Taller translucent category boxes sit behind the streams, with item bars centered inside the streams. This is a native Obsidian tool, not an illustrated history poster or a separate branded application shell.
 
-The host supplies light or dark surfaces, interface typography and native controls. Fixed-pixel chart geometry keeps labels, ribbon thickness and vertical spacing stable while the horizontal time scale changes. Real dense records may need four name-rail levels, abbreviated labels and selectable clusters; the illustrative mockup is not authority for dates, missing records or exact geometry. This document describes the implementation, not pixel-perfect mockup fidelity or real iOS verification.
+The host supplies light or dark surfaces, interface typography and native controls. Fixed-pixel chart geometry keeps labels, ribbon thickness and vertical spacing stable while the horizontal time scale changes. Real dense records may need four name-rail levels, abbreviated labels and selectable clusters; the illustrative mockup is not authority for dates, missing records or exact geometry. This document describes the implementation, not pixel-perfect mockup fidelity or real iOS verification. The earlier automatic full-page comparison remains nonpassing; this approved component refinement does not mark that gate passed.
 
 **Key Characteristics:**
 
 - Host-theme surfaces and native interface typography.
 - Flowing continuity ribbons with explicit attachment semantics.
+- Taller background categories, separate streams and centered item bars.
 - Fixed-pixel geometry and adjacent, unboxed name rails.
 - Quiet, bounded context and selection-led full detail.
 - Configurable rows, layers, colors and display styles.
@@ -118,6 +133,7 @@ The chrome inherits the active Obsidian theme; muted data colors distinguish con
 - **Warm event clay:** the default event-marker color.
 - Layer colors and opacity are configurable. Gold, teal and lilac in the approved example are example data assignments, not mandatory colors for other histories.
 - An anchor may optionally take its tint from attached duration layers when `tintFromAttached` is enabled and their box, stream or line records yield exactly one distinct color. Multiple attached colors retain the anchor's own configured color.
+- Integrated category boxes retain their own layer color; they do not borrow the stream tint. Their translucent fill and dashed outline keep context subordinate to historical streams.
 
 ### Neutral
 
@@ -145,13 +161,15 @@ The dashboard has a compact title/actions strip, one wrapping filter/control row
 
 The chart has one shared horizontal time scale. Its sticky date ruler is `38px` high. A sticky lane gutter is `24px` for the stream-led composition or `160px` when independent non-stream/non-band records require lane labels. The base plot is at least `1000px`; Fit returns to base scale and zoom is bounded from `1` to `32`. Horizontal overflow is intentional, including on narrow screens.
 
-Historical positions are calculated from note dates, with `24px` plot insets. Anchors start with a `28px` half-thickness; attached durations use a `5px` half-thickness. Independent/terminal lane centers are separated by `192px`. Configured row height remains a minimum, not a reason to compress names or ribbons. Zoom changes x positions and recomputes the curves without stretching y coordinates or thicknesses.
+Historical positions are calculated from note dates, with `24px` plot insets. The frontmatter's category-box, stream-ribbon and item-bar heights are separate defaults; layout uses half of each full height. Per-layer overrides accept `8px` through `240px`, while a blank height uses the automatic default. An integrated category box is at least the related stream's height plus `24px`, leaving `12px` on each side of their shared centerline even when custom heights are used. The first lane center is the greater of `134px` and the largest reserved half-height plus `104px`; lane-center spacing is the greater of `192px` and twice that half-height plus `80px`. Reserved half-height includes anchors and non-strip bands, with the category clearance applied to box bands. Configured row height remains a minimum, not a reason to compress names or ribbons. Zoom changes x positions and recomputes the curves without stretching y coordinates or thicknesses.
 
-Attached names use up to four fixed levels separated by the name-rail step. Uppermost and lowermost branches place their rails outside their own stream; other records use the upper rail. Orthogonal leaders tie labels back to their actual shapes. Collision placement may use space along the duration, abbreviate a name or use a nearby remaining text slot; it never invents another historical lane. Not every full name is guaranteed to fit in an overview.
+Attached names use up to four fixed levels separated by the name-rail step. Uppermost and lowermost branches place their rails outside their own stream and any integrated category-box extent; other records use the upper rail. Stream names sit outside the stream, with the label box starting `7px` below its lower edge. Category names start `7px` inside the category's upper edge. Orthogonal leaders tie attached labels back to their actual shapes. Collision placement may use space along the duration, abbreviate a name or use a nearby remaining text slot; it never invents another historical lane. Not every full name is guaranteed to fit in an overview.
 
-Context bands are bounded strips below the historical lanes, separated by a fine rule. Each context layer has a `48px` vertical step; its band is `32px` high and rendered at configured opacity multiplied by `0.18`. A band explicitly placed in a lane instead retains its `56px` height and configured opacity.
+Separate context bands remain optional bounded strips below the historical lanes, separated by a fine rule. Their default height is the frontmatter's context-band height, with `16px` between layers and fill at configured opacity multiplied by `0.18`. A band explicitly placed in a lane uses the lane-band default height and its configured opacity; height overrides apply to both placements.
 
-The optional **Integrated with related streams** mode allocates no extra strip or lane. Explicit references select one or multiple anchors. It reuses each anchor's exact ribbon contour with a time-range clip, tinting the overlap at configured opacity multiplied by `0.28`. Context that outlasts an anchor continues on its centerline at `0.18` opacity with a `5 4` dashed outline. Source endpoints and dates remain unchanged; the dashed portion represents the context, not an inferred historical successor. One context name and selection target represent the record across its linked paths. Ambiguous/missing references are diagnosed even when other targets resolve; no resolved targets produces the separate-strip fallback.
+**Integrated with related streams** allocates no extra strip or lane. Explicit references select one or multiple anchors. Its default `box` shape is a taller category envelope rendered behind the streams on each anchor's exact centerline. Flat stretches are rounded rectangles; a box crossing a fork follows the anchor's curve with constant category thickness until it settles. Each segment starts no earlier than its related anchor, but its end remains the category's own note-derived endpoint, independent of the kingdom's end. Category fill uses configured opacity multiplied by `0.18`, with its own layer-colored `1px` stroke at `0.8` stroke opacity and a `5 4` dash pattern.
+
+The optional `contour` shape retains the earlier integrated treatment: each anchor's exact ribbon contour is clipped to the context overlap and tinted at configured opacity multiplied by `0.28`. Context beyond an anchor continues on its centerline at configured opacity multiplied by `0.18`, with a `5 4` dashed outline and `0.65` stroke opacity. In both shapes, source endpoints and dates remain unchanged; context-only extent is not an inferred historical successor. One context name and selection target represent the record across its linked paths. Ambiguous/missing references are diagnosed even when other targets resolve; no resolved targets produces the separate-strip fallback.
 
 At viewport widths up to `700px`, the title/actions stack, dashboard padding becomes `16px 12px`, search takes a full row, selectors can flex and primary dashboard controls have a `40px` minimum height. At chart-container widths up to `650px`, the selection strip becomes a fixed bottom sheet with `10px` side insets, a `12px` safe-area-aware bottom offset and a `48dvh` maximum height; its buttons have a `44px` minimum height. Chart scrolling is capped at `62dvh` there. At viewport widths up to `600px`, editor fields stack and editor/modal buttons have a `44px` minimum height. Safe-area padding keeps the dashboard and editor content reachable.
 
@@ -163,7 +181,9 @@ The chart and desktop chrome are flat. Borders, muted text, controlled layer opa
 
 Flowing succession ribbons express continuity and taper at terminal ends. Foreground duration boundaries use a canvas-colored under-stroke plus a fine text-colored cap, preserving separation without disconnected card silhouettes. Line records use a `2px` stroke; duration hit areas use a transparent `20px` stroke for selection.
 
-The frontmatter's corner tokens describe context strips, chart/selection frames and layer-editor groups. Event dots are circles with a `5px` radius; cluster markers are circles with a `10px` radius. These are marker radii, not extra corner tokens. The transparent name-focus rectangle has a `2px` corner radius and no resting fill or border. Native control corners remain the host's responsibility.
+Category boxes are taller, centered background envelopes, not enlarged stream ribbons. Flat category stretches use the category corner token; curved stretches preserve constant category thickness along the shared centerline instead of inheriting the stream's fork-width change or terminal taper. Their non-scaling dashed outline remains subordinate to the foreground stream and item boundaries.
+
+The frontmatter's corner tokens describe context strips, category/lane boxes, chart/selection frames and layer-editor groups. Event dots are circles with a `5px` radius; cluster markers are circles with a `10px` radius. These are marker radii, not extra corner tokens. The transparent name-focus rectangle has a `2px` corner radius and no resting fill or border. Native control corners remain the host's responsibility.
 
 ## Components
 
@@ -173,6 +193,8 @@ Buttons, search, selectors, checkboxes and disclosure controls keep native Obsid
 
 Visible keyboard focus uses a `2px` host-accent outline with `3px` offset. The transactional composition editor keeps settings in familiar grouped fields and uses a separate save/cancel footer; layer groups use the secondary surface and layer radius. No custom pill or card-navigation system is introduced.
 
+Per-layer height and category shape controls change display geometry only. Blank height selects the automatic defaults; the optional contour shape preserves the legacy treatment. These are additive composition-version-2 fields (`height` and `bandShape`), not a note-schema migration or a reason to rewrite existing notes or settings files.
+
 ### Shared-scale chart
 
 The bordered, rounded scroll frame contains sticky dates, configurable rows and layers, and streams, boxes, lines, dots or bands. Fine attached-duration caps make succession readable independently of color. Missing/ambiguous attachments and invalid succession produce explicit diagnostics rather than invented relationships. Filtering changes visibility without repacking the underlying historical layout.
@@ -181,7 +203,7 @@ Mouse/pen drag pans horizontally after a `5px` movement threshold; it suppresses
 
 ### Aligned name rails
 
-Names are unboxed text with subdued orthogonal leaders. Anchor names sit within the broad ribbon; attached names occupy their branch's fixed text rails. Hover underlines a name; focus outlines its transparent backing rectangle. The label and shape are independently selectable, and full titles remain available through accessible labels, native SVG titles and the selection strip.
+Names are unboxed text with subdued orthogonal leaders. Stream names sit just outside their ribbon; category names occupy the category's upper inset; attached names occupy their branch's fixed text rails with clearance for the larger category extent. Hover underlines a name; focus outlines its transparent backing rectangle. The label and shape are independently selectable, and full titles remain available through accessible labels, native SVG titles and the selection strip.
 
 ### Clusters and selection
 
@@ -203,6 +225,7 @@ The only authored reveal motion is the selection panel translating upward from `
 - Do use up to four aligned name-rail levels, abbreviation, clusters and selection for real dense records.
 - Do keep context bounded and subordinate, with full detail available separately.
 - Do calculate cluster numeral contrast against its configured marker fill.
+- Do keep integrated category boxes taller than streams, centered behind them and independent of stream end dates; retain contour mode as an explicit option.
 
 ### Don't:
 
@@ -210,4 +233,5 @@ The only authored reveal motion is the selection panel translating upward from `
 - Don't turn label collisions into invented historical lanes or relationships.
 - Don't give resting name labels button backplates or replace continuity ribbons with disconnected cards.
 - Don't hide records merely because their full names cannot fit in an overview.
+- Don't shorten category end dates to stream endpoints or treat context-only extent as a historical successor.
 - Don't reproduce illustrative mockup chronology or claim pixel-perfect fidelity or real iOS verification from this design record.

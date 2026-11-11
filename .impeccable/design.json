@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-10T10:43:51-06:00",
+  "generatedAt": "2026-11-10T19:52:07-06:00",
   "title": "Design System: Visual Timeline",
   "extensions": {
     "colorMeta": {
@@ -72,10 +72,18 @@
       "css": ".ds-chart-frame{position:relative;overflow:auto;min-height:180px;max-height:min(660px,calc(100dvh - 220px));border:1px solid var(--background-modifier-border);border-radius:8px;background:var(--background-primary);font-family:var(--font-interface);overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--background-modifier-border) transparent;cursor:grab;user-select:none}.ds-chart-canvas{position:relative;width:1024px}.ds-axis{position:sticky;top:0;z-index:5;display:flex;height:38px;background:var(--background-primary);border-bottom:1px solid var(--background-modifier-border)}.ds-axis-corner{position:sticky;left:0;z-index:6;width:24px;flex-shrink:0;background:var(--background-primary)}.ds-axis svg{flex-shrink:0;display:block}.ds-axis line{stroke:var(--background-modifier-border)}.ds-chart-frame:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:3px}"
     },
     {
+      "name": "Category, stream and item hierarchy",
+      "kind": "custom",
+      "refersTo": "category-box",
+      "description": "Default full heights are 88px category, 40px stream and 14px item, with a shared centerline. The category is behind the stream, keeps its own layer color and endpoint, and has a 6px radius on flat stretches. Curved stretches follow the anchor centerline at constant category thickness. Height overrides are 8–240px; integrated boxes retain at least 12px clearance above and below their stream. Optional contour mode preserves the earlier exact-contour overlay and dashed continuation treatment.",
+      "html": "<svg width=\"320\" height=\"148\" aria-label=\"Category behind stream with centered item bar\"><g class=\"ds-hierarchy-record\" tabindex=\"0\" role=\"button\" aria-label=\"Category record\"><title>Category record; independent date extent</title><rect class=\"ds-category-shape\" x=\"100\" y=\"36\" width=\"200\" height=\"88\" rx=\"6\"/></g><g class=\"ds-hierarchy-record\" tabindex=\"0\" role=\"button\" aria-label=\"Stream record\"><title>Stream record</title><path class=\"ds-stream-shape\" d=\"M 24 60 H 248 V 100 H 24 Z\"/></g><g class=\"ds-hierarchy-record\" tabindex=\"0\" role=\"button\" aria-label=\"Item record\"><title>Item record</title><path class=\"ds-item-shape\" d=\"M 24 73 H 248 V 87 H 24 Z\"/><path class=\"ds-hierarchy-hit\" d=\"M 24 80 H 248\"/><path class=\"ds-hierarchy-boundary-under\" d=\"M 24 71 V 89 M 248 71 V 89\"/><path class=\"ds-hierarchy-boundary\" d=\"M 24 71 V 89 M 248 71 V 89\"/></g><path class=\"ds-hierarchy-leader\" d=\"M 26 80 V 31 H 40 V 24\"/><g class=\"ds-hierarchy-name\" tabindex=\"0\" role=\"button\" aria-label=\"Item record name\"><rect class=\"ds-hierarchy-name-backing\" x=\"29\" y=\"3\" width=\"38\" height=\"21\" rx=\"2\"/><text class=\"ds-hierarchy-text\" x=\"32\" y=\"18\">Item</text></g><g class=\"ds-hierarchy-name\" tabindex=\"0\" role=\"button\" aria-label=\"Category record name\"><rect class=\"ds-hierarchy-name-backing\" x=\"105\" y=\"40\" width=\"110\" height=\"21\" rx=\"2\"/><text class=\"ds-hierarchy-text ds-category-name\" x=\"108\" y=\"55\">Category</text></g><g class=\"ds-hierarchy-name\" tabindex=\"0\" role=\"button\" aria-label=\"Stream record name\"><rect class=\"ds-hierarchy-name-backing\" x=\"29\" y=\"104\" width=\"68\" height=\"21\" rx=\"2\"/><text class=\"ds-hierarchy-text ds-stream-name\" x=\"32\" y=\"119\">Stream</text></g></svg>",
+      "css": ".ds-hierarchy-record,.ds-hierarchy-name{cursor:pointer;outline:none}.ds-category-shape{fill:#659fa0;fill-opacity:.18;stroke:#659fa0;stroke-opacity:.8;stroke-width:1;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}.ds-stream-shape{fill:#bb9865;stroke:var(--text-muted);stroke-width:.6;stroke-opacity:.45}.ds-item-shape{fill:#659fa0;stroke:var(--background-primary);stroke-width:1;stroke-linejoin:round}.ds-hierarchy-hit{stroke:transparent;stroke-width:20;fill:none}.ds-hierarchy-boundary-under{stroke:var(--background-primary);stroke-width:3;pointer-events:none}.ds-hierarchy-boundary{stroke:var(--text-normal);stroke-width:1;stroke-opacity:.8;pointer-events:none}.ds-hierarchy-leader{stroke:var(--text-muted);stroke-width:.65;opacity:.42;fill:none;pointer-events:none}.ds-hierarchy-text{font:500 13px var(--font-interface,sans-serif);fill:var(--text-normal);pointer-events:none}.ds-category-name{fill:var(--text-muted)}.ds-stream-name{font-weight:650}.ds-hierarchy-name-backing{fill:transparent;stroke:transparent}.ds-hierarchy-name:hover .ds-hierarchy-text{text-decoration:underline;text-underline-offset:3px}.ds-hierarchy-record:hover .ds-hierarchy-hit{fill:var(--text-normal);opacity:.1}.ds-hierarchy-record:focus-visible,.ds-hierarchy-name:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:3px}.ds-hierarchy-record:focus-visible>path,.ds-hierarchy-record:focus-visible>rect{stroke:var(--text-normal);stroke-width:2}.ds-hierarchy-name:focus-visible .ds-hierarchy-name-backing{stroke:var(--text-normal);stroke-width:1}"
+    },
+    {
       "name": "Aligned record name",
       "kind": "custom",
       "refersTo": "name-label",
-      "description": "Unboxed name, orthogonal leader and transparent focus backing. The actual layout uses up to four 22px-spaced rail levels, collision checks and truncation without creating historical lanes.",
+      "description": "Unboxed name, orthogonal leader and transparent focus backing. Stream names sit 7px outside the lower stream edge; category names start 7px inside the category's upper edge. Attached names clear the full category extent and use up to four 22px-spaced rail levels, collision checks and truncation without creating historical lanes.",
       "html": "<svg width=\"280\" height=\"110\" aria-label=\"Record name treatment\"><path class=\"ds-name-leader\" d=\"M 24 94 V 44 H 32 V 37\"/><g class=\"ds-name\" role=\"button\" tabindex=\"0\" aria-label=\"Record title\"><title>Record title</title><rect class=\"ds-name-backdrop\" x=\"21\" y=\"19\" width=\"86\" height=\"21\" rx=\"2\"/><text class=\"ds-name-text\" x=\"24\" y=\"34\">Record title</text></g></svg>",
       "css": ".ds-name{cursor:pointer;outline:none}.ds-name-text{font:500 13px var(--font-interface,sans-serif);fill:var(--text-normal);pointer-events:none}.ds-name-leader{stroke:var(--text-muted);stroke-width:.65;opacity:.42;fill:none;pointer-events:none}.ds-name-backdrop{fill:transparent;stroke:transparent}.ds-name:hover .ds-name-text{text-decoration:underline;text-underline-offset:3px}.ds-name:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:3px}.ds-name:focus-visible .ds-name-backdrop{stroke:var(--text-normal);stroke-width:1}"
     },
@@ -83,7 +91,7 @@
       "name": "Quiet bounded context",
       "kind": "custom",
       "refersTo": "context-band",
-      "description": "32px-high context strip with a 4px corner radius, fine separator and configured opacity multiplied by 0.18. Its location and extent come from record dates, not the preview geometry.",
+      "description": "Optional separate context strip: 32px default height, 4px corner radius, fine separator and configured opacity multiplied by 0.18; layers have 16px separation. A lane-placed band instead defaults to 88px with a 6px radius and configured opacity. Height overrides apply to either placement. Location and extent come from record dates, not the preview geometry.",
       "html": "<svg width=\"280\" height=\"74\" aria-label=\"Context band treatment\"><line class=\"ds-context-rule\" x1=\"0\" x2=\"280\" y1=\"20\" y2=\"20\"/><g class=\"ds-context-record\" tabindex=\"0\" role=\"button\" aria-label=\"Context record\"><rect class=\"ds-context-band\" x=\"24\" y=\"26\" width=\"232\" height=\"32\" rx=\"4\" fill=\"#659fa0\" opacity=\"0.18\"/></g><text class=\"ds-context-label\" x=\"30\" y=\"47\">Context record</text></svg>",
       "css": ".ds-context-rule{stroke:var(--background-modifier-border);stroke-width:1;opacity:.6}.ds-context-record{cursor:pointer;outline:none}.ds-context-band{stroke:var(--text-muted);stroke-width:.5}.ds-context-label{font:500 13px var(--font-interface,sans-serif);fill:var(--text-muted);pointer-events:none}.ds-context-record:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:3px}"
     },
@@ -106,17 +114,18 @@
       "name": "Layer editor group",
       "kind": "card",
       "refersTo": "layer-editor",
-      "description": "Native disclosure group on the secondary surface; a 10px corner radius distinguishes it from 8px chart/selection frames. No decorative card shadow.",
+      "description": "Native disclosure group on the secondary surface; a 10px corner radius distinguishes it from 8px chart/selection frames. Height accepts 8–240px or blank for automatic defaults, and category shape offers box or optional legacy contour. These additive composition-version-2 display fields do not require note or settings-file migrations. No decorative card shadow.",
       "html": "<details class=\"ds-layer-editor\"><summary>Layer settings</summary><p>Native composition settings</p></details>",
       "css": ".ds-layer-editor{margin:12px 0;padding:12px 16px;background:var(--background-secondary);color:var(--text-normal);border-radius:10px;font-family:var(--font-interface)}.ds-layer-editor summary{cursor:pointer;padding:8px 0;font-weight:600;line-height:1.5}.ds-layer-editor :focus-visible{outline:2px solid var(--interactive-accent);outline-offset:3px}@media(max-width:600px){.ds-layer-editor{padding:10px}}"
     }
   ],
   "narrative": {
     "northStar": "Historical continuity with disciplined adjacent name rails",
-    "overview": "The built explorer preserves the user-approved flowing-stream direction and aligned-name-rail structure. Broad continuity ribbons lead; attached durations and their boundaries come next; adjacent names and selection supply individual detail. This is a native Obsidian tool, not an illustrated history poster or a separate branded application shell.\n\nThe host supplies light or dark surfaces, interface typography and native controls. Fixed-pixel chart geometry keeps labels, ribbon thickness and vertical spacing stable while the horizontal time scale changes. Real dense records may need four name-rail levels, abbreviated labels and selectable clusters; the illustrative mockup is not authority for dates, missing records or exact geometry. This document describes the implementation, not pixel-perfect mockup fidelity or real iOS verification.",
+    "overview": "The built explorer preserves the user-approved flowing-stream direction and aligned-name-rail structure. Broad continuity ribbons lead; attached durations and their boundaries come next; adjacent names and selection supply individual detail. Taller translucent category boxes sit behind the streams, with item bars centered inside the streams. This is a native Obsidian tool, not an illustrated history poster or a separate branded application shell.\n\nThe host supplies light or dark surfaces, interface typography and native controls. Fixed-pixel chart geometry keeps labels, ribbon thickness and vertical spacing stable while the horizontal time scale changes. Real dense records may need four name-rail levels, abbreviated labels and selectable clusters; the illustrative mockup is not authority for dates, missing records or exact geometry. This document describes the implementation, not pixel-perfect mockup fidelity or real iOS verification. The earlier automatic full-page comparison remains nonpassing; this approved component refinement does not mark that gate passed.",
     "keyCharacteristics": [
       "Host-theme surfaces and native interface typography.",
       "Flowing continuity ribbons with explicit attachment semantics.",
+      "Taller background categories, separate streams and centered item bars.",
       "Fixed-pixel geometry and adjacent, unboxed name rails.",
       "Quiet, bounded context and selection-led full detail.",
       "Configurable rows, layers, colors and display styles."
@@ -131,13 +140,15 @@
       "Do keep text and vertical geometry fixed in screen pixels while zooming the shared time axis.",
       "Do use up to four aligned name-rail levels, abbreviation, clusters and selection for real dense records.",
       "Do keep context bounded and subordinate, with full detail available separately.",
-      "Do calculate cluster numeral contrast against its configured marker fill.", "Do integrate context into explicitly related stream contours when requested, using dashed context-only continuations without changing source dates."
+      "Do calculate cluster numeral contrast against its configured marker fill.",
+      "Do keep integrated category boxes taller than streams, centered behind them and independent of stream end dates; retain contour mode as an explicit option."
     ],
     "donts": [
       "Don't force a dark theme or make the example history's colors universal.",
       "Don't turn label collisions into invented historical lanes or relationships.",
       "Don't give resting name labels button backplates or replace continuity ribbons with disconnected cards.",
       "Don't hide records merely because their full names cannot fit in an overview.",
+      "Don't shorten category end dates to stream endpoints or treat context-only extent as a historical successor.",
       "Don't reproduce illustrative mockup chronology or claim pixel-perfect fidelity or real iOS verification from this design record."
     ]
   }

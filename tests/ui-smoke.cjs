@@ -21,6 +21,8 @@ const browser=await chromium.launch({headless:true,channel:'chrome'});
 try{
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 await page.setContent(`<style>:root{--background-primary:#202020;--background-secondary:#272727;--background-modifier-border:#484848;--text-normal:#eee;--text-muted:#bbb;--interactive-accent:#b88d65}body{background:var(--background-primary);color:var(--text-normal);font:15px Arial;margin:20px}button,input,select{background:#333;color:#eee;border:1px solid #555;border-radius:5px;padding:8px}small{display:block;color:#bbb}.setting-item{display:flex;justify-content:space-between}.modal{position:fixed;inset:3vh 0 auto;margin:auto;background:#222;border:1px solid #555;padding:20px;box-sizing:border-box}.modal-content{max-height:80vh;overflow:auto;box-sizing:border-box}${readFileSync('styles.css','utf8')}</style><div id="chart"></div>`);
+// The real host supplies modal stacking above sticky charts; the fixture must too.
+await page.addStyleTag({content:'.modal{z-index:100}'});
 await page.evaluate(()=>{HTMLElement.prototype.createEl=function(tag,o={}){const el=document.createElement(tag);if(o.cls)el.className=o.cls;if(o.text)el.textContent=o.text;for(const k of ['type','value','placeholder'])if(o[k]!==undefined)el[k]=o[k];for(const [k,v]of Object.entries(o.attr||{}))el.setAttribute(k,v);this.appendChild(el);return el;};HTMLElement.prototype.createDiv=function(o){return this.createEl('div',o);};HTMLElement.prototype.createSpan=function(o){return this.createEl('span',o);};HTMLElement.prototype.empty=function(){this.replaceChildren();};HTMLElement.prototype.addClass=function(n){this.classList.add(n);};});
 await page.addScriptTag({content:compiled.outputFiles[0].text});
 assert.equal(await page.locator('.vt-compact-row').count(),2);
@@ -30,15 +32,26 @@ await page.getByRole('button',{name:'Open note',exact:true}).click();assert.equa
 await page.getByRole('button',{name:'Close',exact:true}).click();
 await page.screenshot({path:path.join(process.env.TEMP||'.','timeline-composition-desktop.png'),fullPage:true});
 await page.evaluate(()=>edit());await page.getByRole('button',{name:'Add row',exact:true}).click();assert.equal(await page.locator('.vt-row-editor').count(),3);
+const firstLayer=page.locator('.vt-layer-editor').first();await firstLayer.locator('summary').first().click();
+const shapeHeight=firstLayer.locator('.setting-item').filter({has:page.getByText('Shape height (px)',{exact:true})}).locator('input');
+await shapeHeight.fill('72');
 await page.getByRole('button',{name:'Cancel',exact:true}).click();assert.equal(await page.evaluate(()=>saved),0);
+assert.equal(await page.evaluate(()=>plugin.settings.composition.views.find(v=>v.id==='overlay').rows[0].layers[0].height),undefined,'Cancel never saves a height draft');
 await page.evaluate(()=>edit());await page.getByRole('button',{name:'Add row',exact:true}).click();
+await page.locator('.vt-layer-editor').first().locator('summary').first().click();
+await page.locator('.vt-layer-editor').first().locator('.setting-item').filter({has:page.getByText('Shape height (px)',{exact:true})}).locator('input').fill('72');
 await page.getByRole('button',{name:'Save composition',exact:true}).click();assert.equal(await page.evaluate(()=>plugin.settings.composition.views.find(v=>v.id==='overlay').rows.length),3);
+assert.equal(await page.evaluate(()=>plugin.settings.composition.views.find(v=>v.id==='overlay').rows[0].layers[0].height),72,'Save preserves explicit height settings');
 assert.equal(await page.evaluate(()=>saved),1);
 await page.evaluate(()=>edit());await page.screenshot({path:path.join(process.env.TEMP||'.','timeline-editor-desktop.png')});
 await page.setViewportSize({width:390,height:844});
+await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
 await page.locator('.vt-layer-editor summary').first().click();
+await page.locator('.vt-layer-editor').first().locator('.setting-item').filter({has:page.getByText('Shape height (px)',{exact:true})}).locator('input').scrollIntoViewIfNeeded();
+await page.evaluate(()=>{document.querySelector('.modal-content').scrollLeft=0;});
 await page.screenshot({path:path.join(process.env.TEMP||'.','timeline-editor-mobile.png')});
 await page.getByRole('button',{name:'Save composition',exact:true}).scrollIntoViewIfNeeded();assert.ok(await page.getByRole('button',{name:'Save composition',exact:true}).isVisible());
+await page.screenshot({path:path.join(process.env.TEMP||'.','timeline-editor-footer-mobile.png')});
 assert.ok(await page.evaluate(()=>document.querySelector('.modal').getBoundingClientRect().width<=innerWidth));
 await page.getByRole('button',{name:'Cancel',exact:true}).click();await page.screenshot({path:path.join(process.env.TEMP||'.','timeline-composition-mobile.png')});
 console.log('Browser fixture passed: layered rendering, keyboard navigation, draft cancel/save, adding rows, and narrow editor scrolling. Screenshots in TEMP.');

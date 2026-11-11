@@ -10,11 +10,19 @@ export interface TimelineLayer {
   style: DisplayStyle | 'default'; plane: 'background' | 'foreground';
   opacity: number; color: string; labels: 'adaptive' | 'always' | 'selection' | 'hidden';
   bandPlacement?: 'context' | 'lane' | 'integrated'; tintFromAttached?: boolean;
+  /** Display geometry only; dates and historical relationships stay in notes. */
+  height?: number; bandShape?: 'box' | 'contour';
 }
 export interface TimelineRow {anchorOrder?: string[]; maxSubtracks?: number;id: string; name: string; height: number; enabled: boolean; layers: TimelineLayer[];}
 export interface Composition {id: string; name: string; rows: TimelineRow[]; yearGrid?: boolean;}
 export interface CompositionSettings {version: 2; active: string; views: Composition[]; categoryStyles: Record<string,DisplayStyle>;}
 export const STYLES: DisplayStyle[] = ['stream','line','dot','box','band'];
+export const SHAPE_HEIGHTS = {category:88,stream:40,item:14,context:32};
+/** Heights stay in CSS pixels at every horizontal zoom level. */
+export function displayHeight(layer:TimelineLayer,style:DisplayStyle,isAnchor=false):number {
+  if(typeof layer.height==='number'&&Number.isFinite(layer.height))return Math.max(8,Math.min(240,layer.height));
+  return style==='band'?(layer.bandPlacement==='lane'||layer.bandPlacement==='integrated'?SHAPE_HEIGHTS.category:SHAPE_HEIGHTS.context):isAnchor?SHAPE_HEIGHTS.stream:SHAPE_HEIGHTS.item;
+}
 /** Readable count-marker text, independent of the current Obsidian surface color. */
 export function contrastText(color:string):string {
   const channels=[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)/255).map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4);
@@ -23,7 +31,7 @@ export function contrastText(color:string):string {
 }
 export const uid = ():string => `view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
 export function newLayer(name = 'New layer', type = ''):TimelineLayer {
-  return {id:uid(),name,enabled:true,types:type?[`visual-timeline-${type}`]:[],categories:[],tags:[],style:'default',plane:'foreground',opacity:1,color:'#659fa0',labels:'adaptive',bandPlacement:'context',tintFromAttached:false};
+  return {id:uid(),name,enabled:true,types:type?[`visual-timeline-${type}`]:[],categories:[],tags:[],style:'default',plane:'foreground',opacity:1,color:'#659fa0',labels:'adaptive',bandPlacement:'context',bandShape:'box',tintFromAttached:false};
 }
 export function newRow(name = 'New row', layers:TimelineLayer[] = []):TimelineRow {return {id:uid(),name,height:220,enabled:true,layers,anchorOrder:[],maxSubtracks:3};}
 export function defaults():CompositionSettings {
@@ -48,6 +56,8 @@ export function normalizeComposition(value:unknown):CompositionSettings {
     const stored=raw.views.find(v=>v.id===view.id)?.rows?.find(r=>r.id===row.id)?.layers?.find(l=>l.id===layer.id);
     layer.bandPlacement=stored?.bandPlacement==='integrated'?'integrated':stored?.bandPlacement==='lane'?'lane':'context';
     layer.tintFromAttached=stored?.tintFromAttached===true;
+    layer.bandShape=stored?.bandShape==='contour'?'contour':'box';
+    if(typeof stored?.height==='number'&&Number.isFinite(stored.height))layer.height=finite(stored.height,SHAPE_HEIGHTS.item,8,240);
   }
   const categoryStyles:Record<string,DisplayStyle>={};
   for(const [key,style] of Object.entries(raw.categoryStyles||{}))if(STYLES.includes(style))categoryStyles[key]=style;

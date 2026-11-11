@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 async function module(path){const out=await build({entryPoints:[path],bundle:true,write:false,format:'esm'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));}
 const {defaults,normalizeComposition,newLayer,newRow,reorder,matches,styleFor,contrastText}=await module('src/composition.ts');
-const {layoutRow,resolveReference,placeLabels,centerAt,curvePath,ribbonPath,integratedBandSegments}=await module('src/layout.ts');
+const {layoutRow,resolveReference,placeLabels,centerAt,curvePath,ribbonPath,integratedBandSegments,categoryHalf}=await module('src/layout.ts');
 const {historicalDate,formatTime,timeTicks}=await module('src/dates.ts');
 const {relations}=await module('src/utils.ts');
 assert.equal(historicalDate('930 BC'),-929);assert.equal(historicalDate('1 BC'),0);assert.equal(historicalDate('AD 1'),1);
@@ -100,8 +100,18 @@ assert.equal(eraItem.context,undefined,'An integrated band must not allocate a s
 assert.equal(integrated.diagnostics.length,0);
 assert.ok(integrated.height<withContext.height);
 assert.equal(get(integrated,'B').xEnd,get(layout,'B').xEnd,'Context does not lengthen the source kingdom');
-assert.equal(parts.find(p=>p.kind==='overlay'&&p.anchor.record.id==='B').path,ribbonPath(get(integrated,'B')),'The overlay reuses the exact anchor curve and is date-clipped');
-assert.ok(parts.some(p=>p.kind==='continuation'&&p.from===get(integrated,'B').xEnd&&p.to===eraItem.xEnd));
+assert.equal(parts.length,2,'One era is represented once for each explicitly related stream');
+for(const part of parts){
+  assert.equal(part.kind,'category');
+  assert.equal(part.from,Math.max(eraItem.x,part.anchor.x));
+  assert.equal(part.to,eraItem.xEnd,'The category retains its own recorded endpoint');
+  assert.ok(categoryHalf(eraItem,part.anchor)>part.anchor.half,'Category is taller vertically than the stream');
+}
+const contourLayer={...integratedBand,bandShape:'contour'};
+const contour=layoutRow({...row,layers:[...row.layers,contourLayer]},allWithEra,bounds,1000,{});
+const contourParts=integratedBandSegments(get(contour,'Era'));
+assert.equal(contourParts.find(p=>p.kind==='overlay'&&p.anchor.record.id==='B').path,ribbonPath(get(contour,'B')),'Optional contour mode retains exact stream tint geometry');
+assert.ok(contourParts.some(p=>p.kind==='continuation'&&p.from===get(contour,'B').xEnd&&p.to===get(contour,'Era').xEnd));
 assert.equal(JSON.stringify(allWithEra),snapshot,'Layout must not mutate dates, references or records');
 const missingContext={...era,relations:{...rel(),related_to:['not-an-anchor']}};
 const missingIntegrated=layoutRow({...row,layers:[...row.layers,integratedBand]},[...records,missingContext],bounds,1000,{});
@@ -115,3 +125,26 @@ assert.deepEqual(get(mixedIntegrated,'Era').integratedAnchors.map(p=>p.record.id
 assert.ok(mixedIntegrated.diagnostics.some(d=>d.message.includes('Ambiguous integrated stream reference')),'Mixed valid and ambiguous references cannot silently lose intended streams');
 const partialEra={...era,relations:{...rel(),related_to:['A','missing-stream']}};
 assert.ok(layoutRow({...row,layers:[...row.layers,integratedBand]},[a,partialEra],bounds,1000,{}).diagnostics.some(d=>d.message.includes('Unresolved integrated stream reference')));
+// Category boxes, streams and individual bars have independent pixel heights.
+assert.equal(get(layout,'A').half*2,40);assert.equal(get(layout,'King').half*2,14);
+assert.equal(eraItem.half*2,88);
+const lateEra=record('Late era','era','800 BC','550 BC',{related_to:['B','C']});
+const lateLayout=layoutRow({...row,layers:[...row.layers,integratedBand]},[...records,lateEra],{min:-999,max:-549},1000,{});
+const lateItem=get(lateLayout,'Late era'),lateParts=integratedBandSegments(lateItem);
+for(const part of lateParts){
+  assert.ok(part.rect,'A category in a settled lane is a box, not a stream ribbon');
+  assert.equal(part.rect.height,88);assert.equal(part.rect.y+part.rect.height/2,centerAt(part.anchor.curve,part.from));
+  assert.equal(part.rect.x,lateItem.x);assert.equal(part.rect.width,lateItem.xEnd-lateItem.x);
+  assert.ok(part.to>part.anchor.xEnd,'Category continues without lengthening its source stream');
+}
+const zoomed=layoutRow({...row,layers:[...row.layers,integratedBand]},[...records,lateEra],{min:-999,max:-549},4000,{});
+assert.deepEqual(integratedBandSegments(get(zoomed,'Late era')).map(p=>[p.rect.height,p.rect.y]),lateParts.map(p=>[p.rect.height,p.rect.y]),'Zoom never stretches category height or changes its lane');
+const oversizedStream={...anchors,height:120},smallCategory={...integratedBand,height:8};
+const resized=layoutRow({...row,layers:[oversizedStream,rulers,smallCategory]},[...records,lateEra],{min:-999,max:-549},1000,{});
+assert.ok(integratedBandSegments(get(resized,'Late era')).every(s=>s.rect.height===144),'Custom categories retain 12px clearance above and below a taller stream');
+const customized=defaults();customized.views[0].rows[0].layers[0].height=72;customized.views[0].rows[0].layers[0].bandShape='contour';
+const normalized=normalizeComposition(customized).views[0].rows[0].layers[0];assert.equal(normalized.height,72);assert.equal(normalized.bandShape,'contour');
+customized.views[0].rows[0].layers[0].height=Infinity;assert.equal(normalizeComposition(customized).views[0].rows[0].layers[0].height,undefined);
+customized.views[0].rows[0].layers[0].height=900;assert.equal(normalizeComposition(customized).views[0].rows[0].layers[0].height,240);
+customized.views[0].rows[0].layers[0].height=1;assert.equal(normalizeComposition(customized).views[0].rows[0].layers[0].height,8);
+console.log('Validated independent category/stream/item heights, shared centerlines, category dates, zoom invariance, custom bounds and optional contour compatibility.');

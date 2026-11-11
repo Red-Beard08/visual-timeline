@@ -43,8 +43,10 @@
 .vt-item-boundary { stroke:var(--text-normal); stroke-width:1; stroke-opacity:.8; pointer-events:none; }
 .vt-context-rule { stroke:var(--background-modifier-border); stroke-width:1; opacity:.6; }
 .vt-chart .vt-context-band { stroke:var(--text-muted); stroke-width:.5; }
+.vt-chart .vt-category-box { vector-effect:non-scaling-stroke; }
 .vt-chart .vt-composed-record, .vt-chart .vt-name-button { cursor:pointer; outline:none; }
 .vt-chart .vt-composed-record:focus-visible>path, .vt-chart .vt-composed-record.is-selected>path, .vt-chart .vt-composed-record:focus-visible>circle, .vt-chart .vt-composed-record.is-selected>circle { stroke:var(--text-normal); stroke-width:2; }
+.vt-chart .vt-composed-record:focus-visible>rect, .vt-chart .vt-composed-record.is-selected>rect { stroke:var(--text-normal); stroke-width:2; }
 .vt-chart .vt-composed-record:hover .vt-hit-area { fill:var(--text-normal); opacity:.1; }
 .vt-chart .vt-adaptive-label { font:500 13px var(--font-interface, sans-serif); fill:var(--text-normal); pointer-events:none; }
 .vt-chart .vt-label-anchor .vt-adaptive-label { font-weight:650; }
