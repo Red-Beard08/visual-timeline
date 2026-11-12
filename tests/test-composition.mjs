@@ -66,9 +66,23 @@ const narrowEvent={...record('Event','person','930 BC','928 BC'),title:'The Comm
 const nameLayout=layoutRow(newRow('Names',[nameLayer]),[narrowEvent],bounds,1000,{});
 const fullName=placeLabels(nameLayout.items,1000,s=>s.length*8,nameLayout.height);
 assert.equal(fullName[0].text,narrowEvent.title,'Use the complete title when any collision-free rail slot can fit it, even when the dated span is short');
+const nearTitle='The Community at Jerusalem';
+const nearEvents=[
+  {...record('Near A','person','930 BC','930 BC'),title:nearTitle},
+  {...record('Near B','person','920 BC','920 BC'),title:nearTitle}
+];
+const nearLayout=layoutRow(newRow('Names',[nameLayer]),nearEvents,bounds,1000,{});
+const nearbyLabels=placeLabels(nearLayout.items,1000,s=>s.length*8,nearLayout.height);
+assert.equal(nearbyLabels.length,2);
+assert.ok(nearbyLabels.every(label=>label.text!==nearTitle&&label.text.endsWith('…')),'Nearby point labels truncate instead of borrowing distant chart space');
+const midpoint=(nearLayout.items[0].x+nearLayout.items[1].x)/2;
+for(const label of nearbyLabels){
+  if(label.sourceX<midpoint)assert.ok(label.x+label.width<=midpoint+1,'Earlier name remains in its own local date cell');
+  else assert.ok(label.x>=midpoint-1,'Later name remains in its own local date cell');
+}
 const longEvent={...narrowEvent,title:'The Apostolic Community at Jerusalem'};
 const longLayout=layoutRow(newRow('Names',[nameLayer]),[longEvent],bounds,1000,{});
-const croppedName=placeLabels(longLayout.items,110,s=>s.length*7,longLayout.height);
+const croppedName=placeLabels(longLayout.items,180,s=>s.length*7,longLayout.height);
 assert.equal(croppedName[0].text,'The Apostolic…','Fallback truncation retains complete words before the ellipsis');
 // Same-year markers must not displace subsequent durations; actual overlaps still do.
 for(const [label,date,end]of [['Northern succession','885 BC','874 BC'],['Judah succession','841 BC','835 BC'],['Day boundary','0900-01-02','0900-01-03']]){

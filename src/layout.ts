@@ -241,7 +241,27 @@ export function placeLabels(items:PlacedItem[],width:number,measure:(text:string
         : p.isAnchor?[sy+p.half+7]
           : [sy-clearance-30,sy-clearance-52,sy-clearance-74,sy-clearance-96];
     const kind=p.isAnchor?'anchor':p.context||p.integratedAnchors?.length?'context':'record';
-    const slots=rail.filter(y=>y>=4&&y+15<=height-4).flatMap((y,railIndex)=>freeSlots(y).map(slot=>({y,railIndex,...slot})));
+    let region:{start:number;end:number};
+    if(p.isAnchor){
+      region={start:Math.max(4,p.x),end:Math.min(width-4,p.xEnd)};
+    }else if(category||p.context||(['box','stream','line'].includes(p.style)&&p.xEnd-p.x>2)){
+      region={start:Math.max(4,p.x-24),end:Math.min(width-4,p.xEnd+24)};
+    }else{
+      // A point label belongs to the local date neighborhood, not any open
+      // stretch of the full chart. Midpoints to adjacent items keep nearby
+      // entries from competing for the same text space; equal-date entries
+      // may still use separate vertical rails.
+      const peers=items.filter(i=>i.key!==p.key&&i.laneId===p.laneId&&!i.isAnchor&&!i.context&&!i.integratedAnchors?.length&&['adaptive','always'].includes(i.layer.labels));
+      const previous=Math.max(...peers.map(i=>i.x).filter(x=>x<sx-1),-Infinity);
+      const next=Math.min(...peers.map(i=>i.x).filter(x=>x>sx+1),Infinity);
+      let start=sx-160,end=sx+160;
+      if(Number.isFinite(previous))start=Math.max(start,(previous+sx)/2);
+      if(Number.isFinite(next))end=Math.min(end,(next+sx)/2);
+      region={start:Math.max(4,start),end:Math.min(width-4,end)};
+    }
+    const slots=rail.filter(y=>y>=4&&y+15<=height-4).flatMap((y,railIndex)=>freeSlots(y)
+      .map(slot=>({start:Math.max(slot.start,region.start),end:Math.min(slot.end,region.end)}))
+      .filter(slot=>slot.end>slot.start).map(slot=>({y,railIndex,...slot})));
     if(!slots.length)continue;
     const fullWidth=measure(p.record.title);
     const fullFit=slots.filter(slot=>slot.end-slot.start>=fullWidth).map(slot=>({

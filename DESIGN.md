@@ -157,7 +157,7 @@ The hierarchy is compact and task-led. The frontmatter records the implemented s
 
 Chart names retain their screen-space size at every zoom. Anchor names use the stronger anchor-label weight; context names use muted text. Names stay in normal case. Dates and the matching-note status use tabular numerals. Selection prose has the body line height; explanatory section notes are bounded at `72ch`.
 
-**The Stable-Label Rule.** Zoom the time axis, not the font or vertical geometry. Try the full name against every collision-free segment on that item's existing name rails first; only abbreviate when none can hold it. Truncate at a complete-word boundary, splitting a single long word only as a last resort. Selection and accessible labels always retain the full title.
+**The Stable-Label Rule.** Zoom the time axis, not the font or vertical geometry. Try the full name inside collision-free space in that item's nearby temporal neighborhood first; point labels stay within midpoints to adjacent entries and a bounded 320px neighborhood. Duration and category names may use their own recorded span. Only abbreviate when no local slot can hold the title, truncating at a complete-word boundary and splitting a single long word only as a last resort. Selection and accessible labels always retain the full title.
 
 ## Layout
 

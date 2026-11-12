@@ -1071,7 +1071,24 @@ function placeLabels(items, width, measure, height = 300) {
     }).map((i) => categoryHalf(i, anchor))) : p.half;
     const rail = category ? [sy - categoryHalf(p, p.integratedAnchors[0]) + 7] : ((_b = p.integratedAnchors) == null ? void 0 : _b.length) ? [sy + 9, sy - 22] : p.context ? [p.y - 7] : anchor && minAnchor !== maxAnchor && anchor.y === minAnchor ? [anchor.y - clearance - 30, anchor.y - clearance - 52, anchor.y - clearance - 74, anchor.y - clearance - 96] : anchor && minAnchor !== maxAnchor && anchor.y === maxAnchor ? [anchor.y + clearance + 10, anchor.y + clearance + 32, anchor.y + clearance + 54, anchor.y + clearance + 76] : p.isAnchor ? [sy + p.half + 7] : [sy - clearance - 30, sy - clearance - 52, sy - clearance - 74, sy - clearance - 96];
     const kind = p.isAnchor ? "anchor" : p.context || ((_c = p.integratedAnchors) == null ? void 0 : _c.length) ? "context" : "record";
-    const slots = rail.filter((y) => y >= 4 && y + 15 <= height - 4).flatMap((y, railIndex) => freeSlots(y).map((slot) => ({ y, railIndex, ...slot })));
+    let region;
+    if (p.isAnchor) {
+      region = { start: Math.max(4, p.x), end: Math.min(width - 4, p.xEnd) };
+    } else if (category || p.context || ["box", "stream", "line"].includes(p.style) && p.xEnd - p.x > 2) {
+      region = { start: Math.max(4, p.x - 24), end: Math.min(width - 4, p.xEnd + 24) };
+    } else {
+      const peers = items.filter((i) => {
+        var _a2;
+        return i.key !== p.key && i.laneId === p.laneId && !i.isAnchor && !i.context && !((_a2 = i.integratedAnchors) == null ? void 0 : _a2.length) && ["adaptive", "always"].includes(i.layer.labels);
+      });
+      const previous = Math.max(...peers.map((i) => i.x).filter((x) => x < sx - 1), -Infinity);
+      const next = Math.min(...peers.map((i) => i.x).filter((x) => x > sx + 1), Infinity);
+      let start = sx - 160, end = sx + 160;
+      if (Number.isFinite(previous)) start = Math.max(start, (previous + sx) / 2);
+      if (Number.isFinite(next)) end = Math.min(end, (next + sx) / 2);
+      region = { start: Math.max(4, start), end: Math.min(width - 4, end) };
+    }
+    const slots = rail.filter((y) => y >= 4 && y + 15 <= height - 4).flatMap((y, railIndex) => freeSlots(y).map((slot) => ({ start: Math.max(slot.start, region.start), end: Math.min(slot.end, region.end) })).filter((slot) => slot.end > slot.start).map((slot) => ({ y, railIndex, ...slot })));
     if (!slots.length) continue;
     const fullWidth = measure(p.record.title);
     const fullFit = slots.filter((slot) => slot.end - slot.start >= fullWidth).map((slot) => ({
