@@ -1,8 +1,8 @@
 # Visual Timeline
 
-## Local adaptive name labels (1.8.2)
+## Adaptive name labels (1.8.3)
 
-Timeline labels first search collision-free space inside the item's nearby date neighborhood. Point labels are bounded by adjacent entries and a 320px maximum neighborhood, so distant empty stretches can no longer produce long callouts over unrelated dates. Duration and category labels can use their own recorded span. When the full title cannot fit locally, the label truncates at a word boundary with an ellipsis; a single long word is shortened only when needed. The full title remains available through selection and accessibility text. Label changes never affect historical position, lane assignment, or zoom geometry.
+Timeline labels first search collision-free space inside the item's nearby date neighborhood. Point labels can use open vertical rails anywhere inside a bounded 320px neighborhood centered on their date; neighboring marker midpoints no longer squeeze that space to a few pixels. Duration and category labels can use their own recorded span. A title truncates at a word boundary only when no collision-free local slot can hold it; a single long word is shortened only when needed. The full title remains available through selection and accessibility text. Label changes never affect historical position, lane assignment, or zoom geometry.
 
 ## Project-owned timelines (1.8)
 

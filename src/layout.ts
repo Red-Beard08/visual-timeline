@@ -247,17 +247,12 @@ export function placeLabels(items:PlacedItem[],width:number,measure:(text:string
     }else if(category||p.context||(['box','stream','line'].includes(p.style)&&p.xEnd-p.x>2)){
       region={start:Math.max(4,p.x-24),end:Math.min(width-4,p.xEnd+24)};
     }else{
-      // A point label belongs to the local date neighborhood, not any open
-      // stretch of the full chart. Midpoints to adjacent items keep nearby
-      // entries from competing for the same text space; equal-date entries
-      // may still use separate vertical rails.
-      const peers=items.filter(i=>i.key!==p.key&&i.laneId===p.laneId&&!i.isAnchor&&!i.context&&!i.integratedAnchors?.length&&['adaptive','always'].includes(i.layer.labels));
-      const previous=Math.max(...peers.map(i=>i.x).filter(x=>x<sx-1),-Infinity);
-      const next=Math.min(...peers.map(i=>i.x).filter(x=>x>sx+1),Infinity);
-      let start=sx-160,end=sx+160;
-      if(Number.isFinite(previous))start=Math.max(start,(previous+sx)/2);
-      if(Number.isFinite(next))end=Math.min(end,(next+sx)/2);
-      region={start:Math.max(4,start),end:Math.min(width-4,end)};
+      // Keep point names close to their dates, but do not divide the name rail
+      // at neighboring event midpoints. Dense dates often share one stream
+      // lane; that rule can leave only a few pixels despite open rails.
+      // freeSlots() prevents collisions, while this bounded neighborhood keeps
+      // borrowed space tied to the marker by a short leader.
+      region={start:Math.max(4,sx-160),end:Math.min(width-4,sx+160)};
     }
     const slots=rail.filter(y=>y>=4&&y+15<=height-4).flatMap((y,railIndex)=>freeSlots(y)
       .map(slot=>({start:Math.max(slot.start,region.start),end:Math.min(slot.end,region.end)}))

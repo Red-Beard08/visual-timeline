@@ -74,12 +74,9 @@ const nearEvents=[
 const nearLayout=layoutRow(newRow('Names',[nameLayer]),nearEvents,bounds,1000,{});
 const nearbyLabels=placeLabels(nearLayout.items,1000,s=>s.length*8,nearLayout.height);
 assert.equal(nearbyLabels.length,2);
-assert.ok(nearbyLabels.every(label=>label.text!==nearTitle&&label.text.endsWith('…')),'Nearby point labels truncate instead of borrowing distant chart space');
-const midpoint=(nearLayout.items[0].x+nearLayout.items[1].x)/2;
-for(const label of nearbyLabels){
-  if(label.sourceX<midpoint)assert.ok(label.x+label.width<=midpoint+1,'Earlier name remains in its own local date cell');
-  else assert.ok(label.x>=midpoint-1,'Later name remains in its own local date cell');
-}
+assert.ok(nearbyLabels.every(label=>label.text===nearTitle),'Nearby points use open vertical rails within the bounded local date neighborhood before truncating');
+assert.ok(nearbyLabels.every(label=>Math.max(label.x-label.sourceX,label.sourceX-(label.x+label.width),0)<=160),'Full names stay within the local 320px neighborhood of their date');
+for(let i=0;i<nearbyLabels.length;i++)for(const other of nearbyLabels.slice(i+1))assert.ok(nearbyLabels[i].y+15<=other.y||other.y+15<=nearbyLabels[i].y||nearbyLabels[i].x+nearbyLabels[i].width<=other.x||other.x+other.width<=nearbyLabels[i].x,'Borrowed local space remains collision-free');
 const longEvent={...narrowEvent,title:'The Apostolic Community at Jerusalem'};
 const longLayout=layoutRow(newRow('Names',[nameLayer]),[longEvent],bounds,1000,{});
 const croppedName=placeLabels(longLayout.items,180,s=>s.length*7,longLayout.height);
