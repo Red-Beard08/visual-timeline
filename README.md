@@ -1,31 +1,28 @@
 # Visual Timeline
 
-## Separate timelines (1.7)
+## Project-owned timelines (1.8)
 
-Use the **Timeline** selector near the top of the app to choose the active timeline. **New timeline** creates a named collection; **Manage timelines** edits its name, description and included notes, or archives/reactivates it. The selection is remembered across restarts. **All records** keeps the original complete library and its existing saved views.
+Each timeline is now a standalone project folder. Choose the active project from the selector at the top; **New item** automatically saves into that project's `Records/` folder. The creation form has no timeline picker, and records cannot be assigned to multiple projects. The folder is the source of ownership, with `timeline_project_id` stored automatically as a readable cross-check.
 
-The **Layout** selector is separate: each timeline saves its own rows, layers, display styles and views. A new timeline starts with an unfiltered **Overview**, or can optionally copy the current layouts. Copying layouts never copies notes or adds membership automatically. New records default to the active timeline; the creation dialog can assign them elsewhere or leave them in All records only.
-
-Membership is stored in one ordinary Markdown workspace note per timeline, under the configurable **Timeline workspaces folder** (blank defaults to `<root folder>/Timelines`). Records are included by stable ID and remain in their original locations. One note can appear in several timelines without duplication. For older notes without an ID, the runtime uses `path:<vault-relative path>`; renaming such a note requires updating its membership reference. No IDs are written into old notes automatically.
-
-```yaml
-type: visual-timeline-project
-schema_version: 1
-timeline_project_id: VTP-EXAMPLE
-name: Church history
-description: A focused history collection
-status: active
-record_ids:
-  - VTL-EXAMPLE-EVENT
-created: "2026-01-01T00:00:00.000Z"
-updated: "2026-01-01T00:00:00.000Z"
+```text
+Collections/Visual Timeline/Timelines/
+  Israelite Monarchy/
+    Timeline.md
+    Records/
+  Church History/
+    Timeline.md
+    Records/
 ```
 
-Missing membership references are retained and surfaced for review. Duplicate workspace IDs are not silently selected. Archiving hides a timeline from the selector but preserves its notes and layouts. Changing the workspace folder never moves existing files. A missing or archived active timeline falls back visibly to All records.
+Each `Timeline.md` has a version-2 `visual-timeline-project` frontmatter record with its stable project ID, name, status and records-folder path. Layouts remain separate per project. **All records** is still available as a browse view for older notes; creating a note requires an active project. Version-1 collection notes remain readable as legacy views, but no longer expose an item-membership editor.
 
-If a workspace saves but copying its layouts or opening it fails, the dialog confirms the saved state and offers **Retry setup** or **Close**. Retrying never creates a second workspace or repeats completed stages. Closing keeps the saved workspace; a failed layout copy leaves the default Overview available.
+The **Move legacy records** preview moves the recognized notes in the old shared Records folder into the active project. Before moving, it makes and hash-verifies copies of those records and any notes that link to them, then uses Obsidian's file manager so internal links are repaired. Backups and a manifest are retained under `.obsidian/plugins/visual-timeline/migration-backups/`. Destination collisions, unrecognized Markdown, duplicate stable IDs, or changed sources stop the move before it starts. Existing records are not migrated automatically.
 
-Additional commands: `visual-timeline:new-timeline` and `visual-timeline:manage-timelines`. Existing dashboard, creation and configuration commands remain valid. This release does not migrate, move, or reclassify any existing historical notes.
+New project folders are never renamed implicitly when a project display name changes. Archiving hides a project from the active selector but preserves its folder, records and layout. Changing the configured Timelines folder does not move existing project folders.
+
+If project creation succeeds but copying its layout or activating it fails, the dialog reports the saved state and offers **Retry setup** or **Close**. Retrying never creates a second project or repeats completed stages.
+
+Additional commands: `visual-timeline:new-timeline`, `visual-timeline:manage-timelines`, and `visual-timeline:move-legacy-records`. Existing dashboard and creation command IDs remain valid.
 
 ## Diamond point markers and closer lanes (1.6.1)
 

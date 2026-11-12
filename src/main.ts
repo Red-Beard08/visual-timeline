@@ -3,6 +3,7 @@ import {TimelineSettingsTab} from './settings';
 import {TimelineRepository} from './repository';
 import {TimelineProjectRepository} from './timeline-repository';
 import {TimelineManagerModal} from './timeline-modal';
+import {ProjectMigrationModal} from './project-migration';
 import {TimelineView,VIEW} from './dashboard';
 import {NewEventModal} from './modals';
 import {DEFAULT_SETTINGS,TimelineSettings} from './types';
@@ -27,6 +28,7 @@ export default class VisualTimeline extends Plugin{
     this.addCommand({id:'new-timeline',name:'New timeline',callback:()=>void this.openTimelineManager(true)});
     this.addCommand({id:'manage-timelines',name:'Manage timelines',callback:()=>void this.openTimelineManager()});
     this.addCommand({id:'new-event',name:'New timeline event',callback:()=>void this.openNewEvent()});
+    this.addCommand({id:'move-legacy-records',name:'Move legacy records into active project',callback:()=>void this.openActiveProjectMigration()});
     this.addCommand({id:'refresh',name:'Refresh timeline',callback:()=>void this.refreshViews()});
     this.addCommand({id:'manage-layers',name:'Manage timeline layers',callback:()=>this.openSettings()});
     this.addCommand({id:'manage-categories',name:'Manage timeline categories',callback:()=>this.openSettings()});
@@ -55,8 +57,10 @@ export default class VisualTimeline extends Plugin{
   }
   openSettings():void{(this.app as App&{setting?:{open?():void}}).setting?.open?.();}
   openNote(path:string):void{const file=this.app.vault.getAbstractFileByPath(path);if(file)this.app.workspace.getLeaf(false).openFile(file as never);}
-  async openNewEvent():Promise<void>{try{new NewEventModal(this.app,this,await this.projects.all()).open();}catch(error){new Notice(`Could not load timelines: ${String(error)}`);}}
+  async openNewEvent():Promise<void>{try{new NewEventModal(this.app,this,await this.projects.activeProject(this.settings.activeTimeline||'')).open();}catch(error){new Notice(`Could not load project: ${String(error)}`);}}
   async openTimelineManager(create=false):Promise<void>{try{const [catalog,records]=await Promise.all([this.projects.all(),this.repository.all()]);new TimelineManagerModal(this,catalog,records,create).open();}catch(error){new Notice(`Could not load timelines: ${String(error)}`);}}
+  async openActiveProjectMigration():Promise<void>{try{const project=await this.projects.activeProject(this.settings.activeTimeline||'');if(!project){new Notice('Choose or create a project timeline first.');return;}this.openProjectMigration(project);}catch(error){new Notice(`Could not prepare migration: ${String(error)}`);}}
+  openProjectMigration(project:import('./timelines').TimelineProject):void{new ProjectMigrationModal(this,project).open();}
   async openComposition():Promise<void>{try{const [catalog,records]=await Promise.all([this.projects.all(),this.repository.all()]),project=activeProject(this.settings,catalog);new CompositionModal(this,recordsForTimeline(records,project),project?.id||'').open();}catch(error){new Notice(`Could not open layouts: ${String(error)}`);}}
   async openDashboard():Promise<void>{const existing=this.app.workspace.getLeavesOfType(VIEW)[0],leaf=existing||this.app.workspace.getLeaf(true);await leaf.setViewState({type:VIEW,active:true});this.app.workspace.revealLeaf(leaf);}
   async refreshViews():Promise<void>{for(const leaf of this.app.workspace.getLeavesOfType(VIEW))if(leaf.view instanceof TimelineView)await leaf.view.render();}

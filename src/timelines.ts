@@ -4,14 +4,15 @@ import {CompositionSettings,normalizeComposition} from './composition';
 
 export interface TimelineProject {
   id:string; name:string; description:string; status:'active'|'archived';
-  recordIds:string[]; path:string; file:TFile; revision:string;
+  mode:'project'|'legacy'; recordIds:string[]; recordsFolder?:string; path:string; file:TFile; revision:string;
 }
 export interface TimelineCatalog {projects:TimelineProject[]; warnings:string[];}
-export interface TimelineDraft {name:string;description:string;status:'active'|'archived';recordIds:string[];}
+export interface TimelineDraft {name:string;description:string;status:'active'|'archived';}
 
-/** Membership is explicit. A record may be shared without copying its note. */
+/** New project timelines own records by folder; legacy collections remain readable by stable ID. */
 export function recordsForTimeline(records:TimelineRecord[],project?:TimelineProject):TimelineRecord[]{
   if(!project)return records;
+  if(project.mode==='project'&&project.recordsFolder){const prefix=`${project.recordsFolder.replace(/\/$/,'')}/`;return records.filter(r=>r.path.startsWith(prefix));}
   const ids=new Set(project.recordIds);return records.filter(r=>ids.has(r.id));
 }
 export function activeProject(settings:TimelineSettings,catalog:TimelineCatalog):TimelineProject|undefined{

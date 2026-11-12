@@ -24,7 +24,7 @@ __export(main_exports, {
   default: () => VisualTimeline
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/settings.ts
 var import_obsidian = require("obsidian");
@@ -44,7 +44,8 @@ var TimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
     this.text(c, "Index file", "Optional index note", "indexFile");
     this.text(c, "Local map asset", "Optional local SVG/GeoJSON path; no network is used", "mapAssetPath");
     c.createEl("h3", { text: "Timelines" });
-    new import_obsidian.Setting(c).setName("Manage timelines").setDesc("Create named collections, choose included notes, rename or archive timelines. Each has its own layouts.").addButton((b) => b.setButtonText("Manage timelines").onClick(() => void this.plugin.openTimelineManager()));
+    new import_obsidian.Setting(c).setName("Manage timeline projects").setDesc("Create project folders, switch active timelines, rename or archive projects. New records are saved in the active project automatically.").addButton((b) => b.setButtonText("Manage projects").onClick(() => void this.plugin.openTimelineManager()));
+    new import_obsidian.Setting(c).setName("Move legacy records").setDesc("Preview and move records from the old shared Records folder into the active project, with a verified backup and link repair.").addButton((b) => b.setButtonText("Preview migration").onClick(() => void this.plugin.openActiveProjectMigration()));
     this.number(c, "Default range (years)", "Years shown around the selected range", "defaultRangeYears");
     this.text(c, "Default layer", "Initial layer filter", "defaultLayer");
     new import_obsidian.Setting(c).setName("Show unresolved relationships").setDesc("Keep unresolved references visible for review.").addToggle((t) => t.setValue(this.plugin.settings.showUnresolved).onChange(async (v) => {
@@ -176,7 +177,7 @@ var TimelineRepository = class {
     this.settings = settings;
   }
   files() {
-    return this.app.vault.getMarkdownFiles();
+    return this.app.vault.getMarkdownFiles().filter((file) => !file.path.startsWith(".obsidian/plugins/visual-timeline/migration-backups/"));
   }
   async all() {
     const records = [];
@@ -188,14 +189,15 @@ var TimelineRepository = class {
     }
     return records.sort((a, b) => dateValue(a.date.start) - dateValue(b.date.start) || a.title.localeCompare(b.title));
   }
-  async createEvent(input) {
-    return (await this.createEventRecord(input)).file;
+  async createEvent(input, project2) {
+    return (await this.createEventRecord(input, project2)).file;
   }
-  async createEventRecord(input) {
-    const recordId = id(this.settings.idPrefix), folder = (0, import_obsidian2.normalizePath)(this.settings.recordsFolder);
+  async createEventRecord(input, project2) {
+    if (project2.mode !== "project" || !project2.recordsFolder) throw new Error("Choose a project timeline before creating a record.");
+    const recordId = id(this.settings.idPrefix), folder = (0, import_obsidian2.normalizePath)(project2.recordsFolder);
     await this.ensureFolder(folder);
     const path = (0, import_obsidian2.normalizePath)(`${folder}/${safeName(this.settings.filenameTemplate.replace("{id}", recordId).replace("{title}", input.title))}.md`);
-    const now = (/* @__PURE__ */ new Date()).toISOString(), fm = { type: input.type, schema_version: 1, timeline_id: recordId, title: input.title, status: "active", tags: input.tags.length ? input.tags : ["timeline"], layers: input.layers.length ? input.layers : ["general"], categories: input.categories.length ? input.categories : ["event"], locations: input.locations, entities: input.entities, date: { ...input.date, display: input.date.display || input.date.start }, relations: { continued_from: [], split_into: [], merged_into: [], preceded_by: [], succeeded_by: [], related_to: [], contemporary_with: [] }, created: now, updated: now };
+    const now = (/* @__PURE__ */ new Date()).toISOString(), fm = { type: input.type, schema_version: 1, timeline_id: recordId, timeline_project_id: project2.id, title: input.title, status: "active", tags: input.tags.length ? input.tags : ["timeline"], layers: input.layers.length ? input.layers : ["general"], categories: input.categories.length ? input.categories : ["event"], locations: input.locations, entities: input.entities, date: { ...input.date, display: input.date.display || input.date.start }, relations: { continued_from: [], split_into: [], merged_into: [], preceded_by: [], succeeded_by: [], related_to: [], contemporary_with: [] }, created: now, updated: now };
     const file = await this.app.vault.create(path, `---
 ${(0, import_obsidian2.stringifyYaml)(fm)}---
 
@@ -226,11 +228,17 @@ function frontmatter(content) {
   return parsed;
 }
 function fields(fm) {
-  return JSON.stringify([fm.type, fm.schema_version, fm.timeline_project_id, fm.name, fm.description, fm.status, fm.record_ids]);
+  return JSON.stringify([fm.type, fm.schema_version, fm.timeline_project_id, fm.name, fm.description, fm.status, fm.record_ids, fm.records_folder]);
 }
 function project(file, fm) {
-  if (fm.schema_version !== 1 || typeof fm.timeline_project_id !== "string" || !fm.timeline_project_id.trim() || typeof fm.name !== "string" || !fm.name.trim() || !Array.isArray(fm.record_ids) || fm.record_ids.some((v) => typeof v !== "string") || !["active", "archived"].includes(String(fm.status))) throw new Error("Unsupported or incomplete timeline metadata");
-  return { id: fm.timeline_project_id, name: fm.name.trim(), description: typeof fm.description === "string" ? fm.description : "", status: fm.status, recordIds: unique(fm.record_ids), path: file.path, file, revision: fields(fm) };
+  const schema = fm.schema_version;
+  if (schema !== 1 && schema !== 2 || typeof fm.timeline_project_id !== "string" || !fm.timeline_project_id.trim() || typeof fm.name !== "string" || !fm.name.trim() || !["active", "archived"].includes(String(fm.status))) throw new Error("Unsupported or incomplete timeline metadata");
+  if (schema === 1) {
+    if (!Array.isArray(fm.record_ids) || fm.record_ids.some((v) => typeof v !== "string")) throw new Error("Legacy timeline membership is invalid");
+    return { id: fm.timeline_project_id, name: fm.name.trim(), description: typeof fm.description === "string" ? fm.description : "", status: fm.status, mode: "legacy", recordIds: unique(fm.record_ids), path: file.path, file, revision: fields(fm) };
+  }
+  if (typeof fm.records_folder !== "string" || !fm.records_folder.trim()) throw new Error("Project timeline is missing its Records folder.");
+  return { id: fm.timeline_project_id, name: fm.name.trim(), description: typeof fm.description === "string" ? fm.description : "", status: fm.status, mode: "project", recordIds: [], recordsFolder: (0, import_obsidian3.normalizePath)(fm.records_folder), path: file.path, file, revision: fields(fm) };
 }
 var TimelineProjectRepository = class {
   constructor(app, settings) {
@@ -239,7 +247,7 @@ var TimelineProjectRepository = class {
   }
   folder() {
     const value = (this.settings.timelinesFolder || `${this.settings.rootFolder}/Timelines`).trim().replace(/\\/g, "/");
-    if (!value || value.startsWith("/") || value.includes(":") || value.split("/").some((p) => p === ".." || p === ".")) throw new Error("Timeline folder must be a vault-relative path without . or .. segments.");
+    if (!value || value.startsWith("/") || value.includes(":") || value.split("/").some((p) => p === ".." || p === "." || !p)) throw new Error("Timeline folder must be a vault-relative path without . or .. segments.");
     return (0, import_obsidian3.normalizePath)(value);
   }
   async all() {
@@ -247,9 +255,15 @@ var TimelineProjectRepository = class {
     for (const file of this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(folder))) {
       try {
         const fm = frontmatter(await this.app.vault.cachedRead(file));
-        if (fm.type === TYPE) projects.push(project(file, fm));
+        if (fm.type !== TYPE) continue;
+        const p = project(file, fm);
+        if (p.mode === "project") {
+          const parent = file.path.split("/").slice(0, -1).join("/"), expected = (0, import_obsidian3.normalizePath)(`${parent}/Records`);
+          if (!file.path.endsWith("/Timeline.md") || p.recordsFolder !== expected || !p.recordsFolder.startsWith(folder)) throw new Error("Project folder metadata does not match its Timeline.md location.");
+        }
+        projects.push(p);
       } catch (e) {
-        warnings.push(`Could not read timeline workspace: ${file.path}`);
+        warnings.push(`Could not read timeline project: ${file.path}`);
       }
     }
     const counts = /* @__PURE__ */ new Map();
@@ -265,22 +279,20 @@ var TimelineProjectRepository = class {
     if (catalog.warnings.length) throw new Error("Resolve the timeline workspace warnings before saving.");
     if (existing && !catalog.projects.some((p) => p.id === existing.id && p.path === existing.path)) throw new Error("This timeline was moved or removed. Reopen the manager before saving.");
     if (catalog.projects.some((p) => p.id !== (existing == null ? void 0 : existing.id) && p.name.toLocaleLowerCase() === name.toLocaleLowerCase())) throw new Error("A timeline with this name already exists. Choose another name.");
-    const values = { name, description: draft.description.trim(), status: draft.status, record_ids: unique(draft.recordIds) };
+    const values = { name, description: draft.description.trim(), status: draft.status };
     if (!existing) {
-      const folder = this.folder();
-      let current2 = "";
-      for (const part of folder.split("/")) {
-        current2 = current2 ? `${current2}/${part}` : part;
-        if (!this.app.vault.getAbstractFileByPath(current2)) await this.app.vault.createFolder(current2);
-      }
-      const projectId = id("VTP"), now = (/* @__PURE__ */ new Date()).toISOString();
-      const fm = { type: TYPE, schema_version: 1, timeline_project_id: projectId, ...values, created: now, updated: now };
-      const file2 = await this.app.vault.create((0, import_obsidian3.normalizePath)(`${folder}/${safeName(name)} - ${projectId}.md`), `---
+      const projectId = id("VTP"), root = this.folder();
+      let folder = (0, import_obsidian3.normalizePath)(`${root}/${safeName(name)}`);
+      if (this.app.vault.getAbstractFileByPath(folder)) folder = (0, import_obsidian3.normalizePath)(`${folder} ${projectId.slice(-6)}`);
+      const recordsFolder = (0, import_obsidian3.normalizePath)(`${folder}/Records`);
+      await this.ensureFolder(recordsFolder);
+      const now = (/* @__PURE__ */ new Date()).toISOString(), fm = { type: TYPE, schema_version: 2, timeline_project_id: projectId, ...values, records_folder: recordsFolder, created: now, updated: now };
+      const file2 = await this.app.vault.create((0, import_obsidian3.normalizePath)(`${folder}/Timeline.md`), `---
 ${(0, import_obsidian3.stringifyYaml)(fm)}---
 
 # ${name}
 
-This timeline groups records by their stable IDs. A record can belong to several timelines without being copied.
+This project owns the timeline records in its Records folder. New records are created here automatically.
 
 ## Notes
 
@@ -292,17 +304,25 @@ This timeline groups records by their stable IDs. A record can belong to several
     const currentFm = frontmatter(await this.app.vault.read(file));
     if (fields(currentFm) !== existing.revision) throw new Error("This timeline changed elsewhere. Reopen it before saving.");
     const current = project(file, currentFm);
-    if (current.name === values.name && current.description === values.description && current.status === values.status && JSON.stringify(current.recordIds) === JSON.stringify(values.record_ids)) return current;
+    if (current.name === values.name && current.description === values.description && current.status === values.status) return current;
     await this.app.fileManager.processFrontMatter(file, (fm) => {
       if (fields(fm) !== existing.revision) throw new Error("This timeline changed elsewhere. Reopen it before saving.");
       Object.assign(fm, values, { updated: (/* @__PURE__ */ new Date()).toISOString() });
     });
     return project(file, frontmatter(await this.app.vault.read(file)));
   }
-  async addRecord(projectId, recordId) {
-    const catalog = await this.all(), p = catalog.projects.find((p2) => p2.id === projectId && p2.status === "active");
-    if (!p) throw new Error("Selected timeline is unavailable.");
-    await this.save({ name: p.name, description: p.description, status: p.status, recordIds: [...p.recordIds, recordId] }, p);
+  async activeProject(projectId) {
+    if (!projectId) return void 0;
+    const catalog = await this.all();
+    return catalog.projects.find((p) => p.id === projectId && p.status === "active");
+  }
+  async ensureFolder(path) {
+    const parts = path.split("/");
+    let current = "";
+    for (const part of parts) {
+      current = current ? `${current}/${part}` : part;
+      if (!this.app.vault.getAbstractFileByPath(current)) await this.app.vault.createFolder(current);
+    }
   }
 };
 
@@ -385,6 +405,10 @@ function normalizeAttachment(value) {
 // src/timelines.ts
 function recordsForTimeline(records, project2) {
   if (!project2) return records;
+  if (project2.mode === "project" && project2.recordsFolder) {
+    const prefix = `${project2.recordsFolder.replace(/\/$/, "")}/`;
+    return records.filter((r) => r.path.startsWith(prefix));
+  }
   const ids = new Set(project2.recordIds);
   return records.filter((r) => ids.has(r.id));
 }
@@ -424,7 +448,7 @@ var TimelineManagerModal = class extends import_obsidian4.Modal {
     this.plugin = plugin;
     this.catalog = catalog;
     this.records = records;
-    this.copyLayout = false;
+    this.copyLayout = true;
     this.busy = false;
     if (create) this.start();
   }
@@ -438,8 +462,8 @@ var TimelineManagerModal = class extends import_obsidian4.Modal {
   }
   start(p) {
     this.editing = p;
-    this.copyLayout = false;
-    this.draft = p ? { name: p.name, description: p.description, status: p.status, recordIds: [...p.recordIds] } : { name: "", description: "", status: "active", recordIds: [] };
+    this.copyLayout = true;
+    this.draft = { name: (p == null ? void 0 : p.name) || "", description: (p == null ? void 0 : p.description) || "", status: (p == null ? void 0 : p.status) || "active" };
   }
   button(parent, label, action) {
     const b = parent.createEl("button", { text: label });
@@ -451,100 +475,49 @@ var TimelineManagerModal = class extends import_obsidian4.Modal {
     c.empty();
     c.addClass("vt-project-editor");
     c.scrollTop = 0;
-    c.createEl("h2", { text: this.draft ? this.editing ? "Edit timeline" : "New timeline" : "Manage timelines" });
+    c.createEl("h2", { text: this.draft ? this.editing ? "Edit timeline project" : "New timeline project" : "Timeline projects" });
     if (!this.draft) {
       this.drawList(c);
       return;
     }
     const draft = this.draft;
-    c.createEl("p", { cls: "vt-section-note", text: "Choose the notes in this timeline. Notes stay in place and can be shared with other timelines. Layouts are saved separately for each timeline." });
-    new import_obsidian4.Setting(c).setName("Name").addText((t) => {
-      t.inputEl.setAttribute("aria-label", "Timeline name");
+    c.createEl("p", { cls: "vt-section-note", text: "A project gets its own folder and Records subfolder. New items are saved there automatically; no item-level timeline assignment is needed." });
+    new import_obsidian4.Setting(c).setName("Project name").addText((t) => {
+      t.inputEl.setAttribute("aria-label", "Timeline project name");
       t.setValue(draft.name).onChange((v) => draft.name = v);
     });
     new import_obsidian4.Setting(c).setName("Description").addTextArea((t) => {
       t.inputEl.rows = 2;
-      t.inputEl.setAttribute("aria-label", "Timeline description");
+      t.inputEl.setAttribute("aria-label", "Timeline project description");
       t.setValue(draft.description).onChange((v) => draft.description = v);
     });
-    if (this.editing) new import_obsidian4.Setting(c).setName("Status").setDesc("Archived timelines keep their notes and layouts, but leave the active selector.").addDropdown((d) => d.addOption("active", "Active").addOption("archived", "Archived").setValue(draft.status).onChange((v) => draft.status = v));
-    else new import_obsidian4.Setting(c).setName("Copy current layouts").setDesc("Off starts with an unfiltered Overview. On copies the current rows, layers, and saved views, not its notes.").addToggle((t) => t.setValue(this.copyLayout).onChange((v) => this.copyLayout = v));
-    const heading = c.createDiv({ cls: "vt-project-members-heading" });
-    heading.createEl("h3", { text: "Included notes" });
-    const count = heading.createSpan({ cls: "vt-section-note", attr: { "aria-live": "polite" } });
-    const updateCount = () => count.textContent = `${draft.recordIds.length} selected`;
-    const search = c.createEl("input", { type: "search", placeholder: "Find notes by name, type, or tag\u2026", cls: "vt-project-search", attr: { "aria-label": "Find notes to include" } });
-    const tools = c.createDiv({ cls: "vt-project-tools" }), list2 = c.createDiv({ cls: "vt-project-members" });
-    let matching = this.records;
-    const setMember = (key, on) => {
-      draft.recordIds = on ? [.../* @__PURE__ */ new Set([...draft.recordIds, key])] : draft.recordIds.filter((id2) => id2 !== key);
-      updateCount();
-    };
-    const drawMembers = () => {
-      const q = search.value.trim().toLocaleLowerCase();
-      matching = this.records.filter((r) => `${r.title} ${r.type} ${r.tags.join(" ")} ${r.path}`.toLocaleLowerCase().includes(q));
-      list2.empty();
-      for (const record of matching) {
-        const row = list2.createEl("label", { cls: "vt-project-member" }), input = row.createEl("input", { type: "checkbox" });
-        input.checked = draft.recordIds.includes(record.id);
-        input.onchange = () => setMember(record.id, input.checked);
-        const info = row.createDiv();
-        info.createEl("strong", { text: record.title });
-        info.createEl("small", { text: `${record.type.replace("visual-timeline-", "")} \xB7 ${record.path}` });
-      }
-      if (!matching.length) list2.createEl("p", { cls: "vt-section-note", text: "No notes match. Create records from the timeline after saving." });
-      const known = new Set(this.records.map((r) => r.id)), missing = draft.recordIds.filter((key) => !known.has(key));
-      if (missing.length) {
-        const details = list2.createEl("details");
-        details.createEl("summary", { text: `${missing.length} unavailable note reference${missing.length === 1 ? "" : "s"} retained` });
-        details.createEl("p", { cls: "vt-section-note", text: "These IDs are preserved. Uncheck one only if you want to remove its membership." });
-        for (const key of missing) {
-          const row = details.createEl("label", { cls: "vt-project-member" }), input = row.createEl("input", { type: "checkbox" });
-          input.checked = true;
-          row.createSpan({ text: key });
-          input.onchange = () => {
-            setMember(key, input.checked);
-            drawMembers();
-          };
-        }
-      }
-      updateCount();
-    };
-    this.button(tools, "Include matching", () => {
-      matching.forEach((r) => setMember(r.id, true));
-      drawMembers();
-    });
-    this.button(tools, "Exclude matching", () => {
-      matching.forEach((r) => setMember(r.id, false));
-      drawMembers();
-    });
-    search.oninput = drawMembers;
-    drawMembers();
-    const error = c.createEl("p", { cls: "vt-project-error", attr: { role: "alert" } });
-    const footer = c.createDiv({ cls: "vt-editor-footer" });
+    if (this.editing) new import_obsidian4.Setting(c).setName("Status").setDesc("Archiving hides the project from the active selector; its folder and records remain intact.").addDropdown((d) => d.addOption("active", "Active").addOption("archived", "Archived").setValue(draft.status).onChange((v) => draft.status = v));
+    else new import_obsidian4.Setting(c).setName("Copy current layout").setDesc("Start this project with the current rows, layers, and saved views. This does not copy or assign any notes.").addToggle((t) => t.setValue(this.copyLayout).onChange((v) => this.copyLayout = v));
+    const error = c.createEl("p", { cls: "vt-project-error", attr: { role: "alert" } }), footer = c.createDiv({ cls: "vt-editor-footer" });
     const cancel = this.button(footer, "Cancel", () => this.close());
-    const save = this.button(footer, "Save timeline", () => void this.save(error, save, cancel));
+    const save = this.button(footer, this.editing ? "Save project" : "Create project", () => void this.save(error, save, cancel));
     save.addClass("mod-cta");
   }
   drawList(c) {
-    c.createEl("p", { cls: "vt-section-note", text: "Each timeline has its own notes and layouts. All records remains the complete library." });
-    this.button(c, "New timeline", () => {
+    c.createEl("p", { cls: "vt-section-note", text: "Each project owns the items in its Records folder. All records remains available for browsing older notes. Legacy collection timelines are preserved as read-only views." });
+    this.button(c, "New timeline project", () => {
       this.start();
       this.draw();
     }).addClass("mod-cta");
     for (const warning of this.catalog.warnings) c.createEl("p", { cls: "vt-project-error", text: warning });
-    if (!this.catalog.projects.length) c.createEl("p", { text: "No separate timelines yet. Create one to start a focused collection." });
+    if (!this.catalog.projects.length) c.createEl("p", { text: "No timeline projects yet. Create one to start a focused timeline." });
     for (const p of this.catalog.projects) {
-      const row = c.createDiv({ cls: "vt-project-row" }), info = row.createDiv();
+      const row = c.createDiv({ cls: "vt-project-row" }), info = row.createDiv(), count = recordsForTimeline(this.records, p).length;
       info.createEl("strong", { text: p.name });
-      info.createEl("small", { text: `${p.recordIds.length} ${p.recordIds.length === 1 ? "note" : "notes"}${p.status === "archived" ? " \xB7 Archived" : ""}` });
+      info.createEl("small", { text: `${count} ${count === 1 ? "record" : "records"} \xB7 ${p.mode === "project" ? "Project folder" : "Legacy collection \xB7 read only"}${p.status === "archived" ? " \xB7 Archived" : ""}` });
       if (p.description) info.createEl("p", { text: p.description });
       const actions = row.createDiv({ cls: "vt-project-tools" });
       if (p.status === "active") this.button(actions, "Open", () => void this.openProject(p));
-      this.button(actions, "Edit", () => {
+      this.button(actions, "Edit details", () => {
         this.start(p);
         this.draw();
       });
+      if (p.mode === "project" && this.records.some((r) => r.path.startsWith(`${this.plugin.settings.recordsFolder.replace(/\/$/, "")}/`))) this.button(actions, "Move legacy records here", () => void this.plugin.openProjectMigration(p));
       this.button(actions, "Open note", () => this.plugin.openNote(p.path));
     }
     const footer = c.createDiv({ cls: "vt-editor-footer" });
@@ -557,7 +530,7 @@ var TimelineManagerModal = class extends import_obsidian4.Modal {
       await this.plugin.setActiveTimeline(p.id);
       this.close();
     } catch (e) {
-      new import_obsidian4.Notice("Could not open timeline. Try again.");
+      new import_obsidian4.Notice("Could not open timeline project. Try again.");
     } finally {
       this.busy = false;
     }
@@ -582,14 +555,14 @@ var TimelineManagerModal = class extends import_obsidian4.Modal {
       }
       await this.plugin.setActiveTimeline(pending.activeId);
       this.close();
-      new import_obsidian4.Notice(`Timeline ${pending.created ? "created" : "saved"}.`);
+      new import_obsidian4.Notice(`Timeline project ${pending.created ? "created" : "saved"}.`);
     } catch (e) {
       if (this.committed) {
-        const copying = this.committed.stage === "layout", step = copying ? "Copying the layouts" : "Opening the active timeline", recovery = copying ? "Close to keep the saved timeline without copying layouts." : "Close to keep the saved timeline and open it later through Manage timelines.";
-        error.textContent = `Timeline \u201C${this.committed.project.name}\u201D was saved, including its note membership. ${step} could not finish. Retry setup to complete only that step, or ${recovery}`;
+        const copying = this.committed.stage === "layout", step = copying ? "Copying the layout" : "Opening the active project", recovery = copying ? "Close to keep the saved project without copying its layout." : "Close to keep the saved project and open it later from Timeline projects.";
+        error.textContent = `Project \u201C${this.committed.project.name}\u201D was saved. ${step} could not finish. Retry setup or ${recovery}`;
         save.textContent = "Retry setup";
         cancel.textContent = "Close";
-      } else error.textContent = e instanceof Error ? e.message : "Could not save timeline. Try again.";
+      } else error.textContent = e instanceof Error ? e.message : "Could not save project. Try again.";
     } finally {
       this.busy = false;
       controls.forEach((el) => el.disabled = !!this.committed);
@@ -599,8 +572,176 @@ var TimelineManagerModal = class extends import_obsidian4.Modal {
   }
 };
 
-// src/dashboard.ts
+// src/project-migration.ts
 var import_obsidian5 = require("obsidian");
+var BACKUP_ROOT = ".obsidian/plugins/visual-timeline/migration-backups";
+async function sha256(value) {
+  const bytes = new TextEncoder().encode(value), digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+function identity(content) {
+  const match = content.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) throw new Error("Timeline record has no frontmatter.");
+  const fm = (0, import_obsidian5.parseYaml)(match[1]);
+  return { type: String(fm.type || ""), id: String(fm.timeline_id || fm.id || "") };
+}
+var ProjectMigrationModal = class extends import_obsidian5.Modal {
+  constructor(plugin, project2) {
+    super(plugin.app);
+    this.plugin = plugin;
+    this.project = project2;
+    this.files = [];
+    this.linkedFiles = [];
+    this.loading = true;
+    this.busy = false;
+    this.error = "";
+  }
+  onOpen() {
+    this.modalEl.addClass("vt-project-modal");
+    this.contentEl.addClass("vt-project-editor");
+    this.contentEl.scrollTop = 0;
+    void this.load();
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+  async load() {
+    const source = this.plugin.settings.recordsFolder.replace(/\\/g, "/").replace(/\/$/, "") + "/", all = this.plugin.app.vault.getMarkdownFiles();
+    this.files = all.filter((file) => file.path.startsWith(source));
+    const records = new Set(this.plugin.repository.files().filter((file) => file.path.startsWith(source)).map((file) => file.path));
+    const unsupported = this.files.filter((file) => !records.has(file.path));
+    if (unsupported.length) this.error = `${unsupported.length} Markdown file${unsupported.length === 1 ? " is" : "s are"} not recognized as timeline records; nothing will move until reviewed.`;
+    const moved = new Set(this.files.map((file) => file.path));
+    const links = this.plugin.app.metadataCache.resolvedLinks;
+    const sources = /* @__PURE__ */ new Set();
+    for (const [sourcePath, targets] of Object.entries(links || {})) if (Object.keys(targets).some((target) => moved.has(target)) && !moved.has(sourcePath)) sources.add(sourcePath);
+    this.linkedFiles = all.filter((file) => sources.has(file.path));
+    this.loading = false;
+    this.draw();
+  }
+  draw() {
+    const c = this.contentEl;
+    c.empty();
+    c.scrollTop = 0;
+    c.createEl("h2", { text: "Move legacy records into project" });
+    if (this.loading) {
+      c.createEl("p", { text: "Preparing a migration preview\u2026" });
+      return;
+    }
+    if (this.project.mode !== "project" || !this.project.recordsFolder) {
+      c.createEl("p", { cls: "vt-project-error", text: "Select a project-folder timeline before moving legacy records." });
+      return;
+    }
+    const destination = this.project.recordsFolder.replace(/\/$/, "") + "/", collisions = this.files.filter((file) => this.plugin.app.vault.getAbstractFileByPath(destination + file.name));
+    c.createEl("p", { cls: "vt-section-note", text: `This preview will move ${this.files.length} existing records from \u201C${this.plugin.settings.recordsFolder}\u201D into \u201C${this.project.name}\u201D. The notes keep their filenames and stable IDs. Linked notes are backed up before Obsidian updates paths.` });
+    c.createEl("p", { cls: "vt-section-note", text: `A verified copy of each record and any note linking to it will be retained under ${BACKUP_ROOT}/ before the move.` });
+    if (collisions.length) c.createEl("p", { cls: "vt-project-error", text: `${collisions.length} destination filename collision${collisions.length === 1 ? "" : "s"} detected. Nothing will move.` });
+    if (!this.files.length) c.createEl("p", { text: "No legacy records remain in the configured records folder." });
+    if (this.files.length) {
+      const details = c.createEl("details");
+      details.createEl("summary", { text: `Preview ${this.files.length} records` });
+      const list2 = details.createEl("ul");
+      for (const file of this.files) list2.createEl("li", { text: file.basename });
+    }
+    if (this.linkedFiles.length) c.createEl("p", { cls: "vt-section-note", text: `${this.linkedFiles.length} other note${this.linkedFiles.length === 1 ? " links" : "s link"} to these records; their original contents will be backed up before link repair.` });
+    const error = c.createEl("p", { cls: "vt-project-error", attr: { role: "alert" } });
+    error.textContent = this.error;
+    const footer = c.createDiv({ cls: "vt-editor-footer" }), cancel = footer.createEl("button", { text: "Cancel" });
+    cancel.onclick = () => this.close();
+    const move = footer.createEl("button", { text: `Move ${this.files.length} records`, cls: "mod-cta" });
+    move.disabled = !!this.error || collisions.length > 0 || !this.files.length || this.busy;
+    move.onclick = () => void this.migrate(error, move, cancel);
+  }
+  async ensureFolder(path) {
+    let current = "";
+    for (const part of path.split("/")) {
+      current = current ? `${current}/${part}` : part;
+      if (!this.plugin.app.vault.getAbstractFileByPath(current)) await this.plugin.app.vault.createFolder(current);
+    }
+  }
+  async migrate(error, move, cancel) {
+    if (this.busy || this.project.mode !== "project" || !this.project.recordsFolder) return;
+    this.busy = true;
+    error.textContent = "";
+    const buttons = [move, cancel];
+    buttons.forEach((b) => b.disabled = true);
+    const source = this.plugin.settings.recordsFolder.replace(/\\/g, "/").replace(/\/$/, "") + "/", destination = this.project.recordsFolder.replace(/\/$/, "") + "/", timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-"), backupRoot = `${BACKUP_ROOT}/${timestamp}`, entries = [], moved = [];
+    let manifestFile;
+    try {
+      const current = this.plugin.app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(source));
+      if (current.length !== this.files.length) throw new Error("The source records changed after preview. Reopen the migration preview.");
+      const ids = /* @__PURE__ */ new Map();
+      for (const file of current) {
+        const meta = metadataToRecord(file, this.plugin.app.metadataCache);
+        if (!meta) throw new Error(`A source file is no longer a recognized timeline record: ${file.basename}`);
+        const id2 = String(meta.frontmatter.timeline_id || meta.frontmatter.id || "");
+        if (!id2) throw new Error(`Record has no stable ID; add one before moving it: ${file.basename}`);
+        if (ids.has(id2)) throw new Error(`Duplicate timeline record ID ${id2}; resolve it before migration.`);
+        ids.set(id2, file.path);
+        if (this.plugin.app.vault.getAbstractFileByPath(destination + file.name)) throw new Error(`Destination collision: ${file.name}`);
+      }
+      const backupInputs = [...current.map((file) => ({ file, kind: "record" })), ...this.linkedFiles.map((file) => ({ file, kind: "linked-note" }))];
+      for (const { file, kind } of backupInputs) {
+        const content = await this.plugin.app.vault.read(file), backup = `${backupRoot}/files/${file.path}`;
+        await this.ensureFolder(backup.slice(0, backup.lastIndexOf("/")));
+        const copy = await this.plugin.app.vault.create(backup, content), verify = await this.plugin.app.vault.read(copy), hash = await sha256(content), target = kind === "record" ? destination + file.name : file.path, recordIdentity = kind === "record" ? identity(content) : void 0;
+        if (verify !== content || await sha256(verify) !== hash) throw new Error(`Backup verification failed for ${file.path}`);
+        entries.push({ source: file.path, target, backup, sha256: hash, kind, timelineId: recordIdentity == null ? void 0 : recordIdentity.id, status: "backed-up" });
+      }
+      await this.ensureFolder(backupRoot);
+      const manifest = { schema_version: 1, type: "visual-timeline-project-migration-backup", project_id: this.project.id, created: (/* @__PURE__ */ new Date()).toISOString(), status: "ready-to-move", source_folder: this.plugin.settings.recordsFolder, destination_folder: this.project.recordsFolder, entries };
+      manifestFile = await this.plugin.app.vault.create(`${backupRoot}/manifest.json`, JSON.stringify(manifest, null, 2));
+      await this.ensureFolder(this.project.recordsFolder);
+      for (const file of current) {
+        const target = destination + file.name;
+        await this.plugin.app.fileManager.renameFile(file, target);
+        moved.push({ source: source + file.name, target });
+        const entry = entries.find((value) => value.kind === "record" && value.source === file.path);
+        if (entry) entry.status = "moved";
+        manifest.status = "moving";
+        await this.plugin.app.vault.modify(manifestFile, JSON.stringify(manifest, null, 2));
+      }
+      const finalFiles = this.plugin.app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(destination));
+      if (finalFiles.length !== current.length) throw new Error(`Moved ${finalFiles.length} records but expected ${current.length}.`);
+      for (const move2 of moved) {
+        const target = this.plugin.app.vault.getAbstractFileByPath(move2.target);
+        if (!(target instanceof import_obsidian5.TFile)) throw new Error(`Moved file is missing: ${move2.target}`);
+        const recordIdentity = identity(await this.plugin.app.vault.read(target)), entry = entries.find((value) => value.kind === "record" && value.target === move2.target);
+        if (!recordIdentity.type.startsWith("visual-timeline-") || !entry || recordIdentity.id !== entry.timelineId) throw new Error(`Moved record identity verification failed: ${move2.target}`);
+        entry.status = "verified";
+      }
+      manifest.status = "verified";
+      await this.plugin.app.vault.modify(manifestFile, JSON.stringify(manifest, null, 2));
+      await this.plugin.refreshViews();
+      this.close();
+      new import_obsidian5.Notice(`Moved ${moved.length} records into ${this.project.name}. Verified backup retained in ${backupRoot}.`);
+    } catch (e) {
+      const failures = [];
+      for (const entry of [...moved].reverse()) {
+        const file = this.plugin.app.vault.getAbstractFileByPath(entry.target);
+        if (file instanceof import_obsidian5.TFile) try {
+          await this.plugin.app.fileManager.renameFile(file, entry.source);
+          const record = entries.find((value) => value.kind === "record" && value.target === entry.target);
+          if (record) record.status = "backed-up";
+        } catch (e2) {
+          failures.push(entry.target);
+          const record = entries.find((value) => value.kind === "record" && value.target === entry.target);
+          if (record) record.status = "rollback-failed";
+        }
+      }
+      if (manifestFile) try {
+        await this.plugin.app.vault.modify(manifestFile, JSON.stringify({ schema_version: 1, type: "visual-timeline-project-migration-backup", project_id: this.project.id, created: timestamp, status: failures.length ? "rollback-incomplete" : "rolled-back", source_folder: this.plugin.settings.recordsFolder, destination_folder: this.project.recordsFolder, entries }, null, 2));
+      } catch (e2) {
+      }
+      error.textContent = `Migration stopped. ${e instanceof Error ? e.message : "Unexpected error."}${failures.length ? ` Rollback needs attention for ${failures.join(", ")}.` : " Moved files were returned to their source paths where possible."} Verified backups were retained.`;
+      this.busy = false;
+      buttons.forEach((b) => b.disabled = false);
+    }
+  }
+};
+
+// src/dashboard.ts
+var import_obsidian6 = require("obsidian");
 
 // src/layout.ts
 var refName = (s) => s.replace(/^\[\[|\]\]$/g, "").split("|")[0].replace(/\.md$/, "");
@@ -1407,7 +1548,7 @@ function renderComposition(parent, view, settings, records, _bounds, open, initi
 
 // src/dashboard.ts
 var VIEW = "visual-timeline-dashboard";
-var TimelineView = class extends import_obsidian5.ItemView {
+var TimelineView = class extends import_obsidian6.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -1468,22 +1609,22 @@ var TimelineView = class extends import_obsidian5.ItemView {
     this.button(actions, "Refresh", () => void this.render());
     this.button(actions, "Settings", () => this.plugin.openSettings());
     const switcher = root.createDiv({ cls: "vt-timeline-switcher" }), label = switcher.createEl("label", { cls: "vt-timeline-select" });
-    label.createSpan({ text: "Timeline" });
+    label.createSpan({ text: "Timeline project" });
     const timelines = label.createEl("select", { attr: { "aria-label": "Active timeline" } });
     timelines.createEl("option", { text: "All records", value: "" });
     const active = catalog.projects.filter((p) => p.status === "active");
-    for (const p of active) timelines.createEl("option", { text: active.filter((other) => other.name === p.name).length > 1 ? `${p.name} (${p.id})` : p.name, value: p.id });
+    for (const p of active) timelines.createEl("option", { text: `${p.name}${p.mode === "legacy" ? " \xB7 legacy view" : ""}`, value: p.id });
     timelines.value = scope;
     timelines.onchange = () => {
       timelines.disabled = true;
       void this.plugin.setActiveTimeline(timelines.value).catch(() => {
         timelines.value = scope;
         timelines.disabled = false;
-        new import_obsidian5.Notice("Could not switch timeline. Refresh and try again.");
+        new import_obsidian6.Notice("Could not switch timeline. Refresh and try again.");
       });
     };
-    this.button(switcher, "New timeline", () => void this.plugin.openTimelineManager(true));
-    this.button(switcher, "Manage timelines", () => void this.plugin.openTimelineManager());
+    this.button(switcher, "New project", () => void this.plugin.openTimelineManager(true));
+    this.button(switcher, "Manage projects", () => void this.plugin.openTimelineManager());
     if (project2 == null ? void 0 : project2.description) root.createEl("p", { cls: "vt-timeline-description", text: project2.description });
     if (this.plugin.settings.activeTimeline && !project2) root.createEl("p", { cls: "vt-project-error", text: "The selected timeline is unavailable or archived. Showing All records; choose another timeline above." });
     if (catalog.warnings.length) {
@@ -1491,9 +1632,9 @@ var TimelineView = class extends import_obsidian5.ItemView {
       details.createEl("summary", { text: `${catalog.warnings.length} timeline workspace warning${catalog.warnings.length === 1 ? "" : "s"}` });
       for (const warning of catalog.warnings) details.createEl("p", { text: warning });
     }
-    if (project2) {
+    if ((project2 == null ? void 0 : project2.mode) === "legacy") {
       const ids = new Set(all.map((r) => r.id)), missing = project2.recordIds.filter((id2) => !ids.has(id2)).length;
-      if (missing) root.createEl("p", { cls: "vt-section-note", text: `${missing} included note reference${missing === 1 ? " is" : "s are"} unavailable. Manage timelines to review; references have been retained.` });
+      if (missing) root.createEl("p", { cls: "vt-section-note", text: `${missing} legacy note reference${missing === 1 ? " is" : "s are"} unavailable. References are retained.` });
     }
     const controls = root.createDiv({ cls: "vt-controls" }), layoutLabel = controls.createEl("label", { cls: "vt-layout-select" });
     layoutLabel.createSpan({ text: "Layout" });
@@ -1513,7 +1654,7 @@ var TimelineView = class extends import_obsidian5.ItemView {
         config.active = previous;
         views.value = previous;
         views.disabled = false;
-        new import_obsidian5.Notice("Could not save selected layout.");
+        new import_obsidian6.Notice("Could not save selected layout.");
       });
     };
     const search = controls.createEl("input", { type: "search", placeholder: "Search names, events, tags, places\u2026", attr: { "aria-label": "Search timeline" } });
@@ -1532,10 +1673,9 @@ var TimelineView = class extends import_obsidian5.ItemView {
     };
     if (!this.records.length) {
       const empty = root.createDiv({ cls: "vt-project-empty" });
-      empty.createEl("h2", { text: project2 ? "This timeline is empty" : "No timeline records yet" });
-      empty.createEl("p", { text: project2 ? "Create a record here, or include existing notes through Manage timelines." : "Create your first event, kingdom, person, or era to start exploring." });
-      this.button(empty, "New event", () => void this.plugin.openNewEvent());
-      if (project2) this.button(empty, "Include existing notes", () => void this.plugin.openTimelineManager());
+      empty.createEl("h2", { text: (project2 == null ? void 0 : project2.mode) === "project" ? "This project is ready" : "No timeline records yet" });
+      empty.createEl("p", { text: (project2 == null ? void 0 : project2.mode) === "project" ? "New items created here will automatically belong to this project." : "Create a timeline project first; new records are always saved inside its folder." });
+      this.button(empty, (project2 == null ? void 0 : project2.mode) === "project" ? "New item" : "Create project", () => (project2 == null ? void 0 : project2.mode) === "project" ? void this.plugin.openNewEvent() : void this.plugin.openTimelineManager(true));
       return;
     }
     this.draw(root);
@@ -1569,12 +1709,12 @@ var TimelineView = class extends import_obsidian5.ItemView {
 };
 
 // src/modals.ts
-var import_obsidian6 = require("obsidian");
-var NewEventModal = class extends import_obsidian6.Modal {
-  constructor(app, plugin, catalog) {
+var import_obsidian7 = require("obsidian");
+var NewEventModal = class extends import_obsidian7.Modal {
+  constructor(app, plugin, project2) {
     super(app);
     this.plugin = plugin;
-    this.catalog = catalog;
+    this.project = project2;
     this.title = "";
     this.start = "";
     this.display = "";
@@ -1582,9 +1722,7 @@ var NewEventModal = class extends import_obsidian6.Modal {
     this.layer = "general";
     this.category = "event";
     this.circa = false;
-    this.timeline = "";
     this.busy = false;
-    this.timeline = catalog.projects.some((p) => p.id === plugin.settings.activeTimeline && p.status === "active") ? plugin.settings.activeTimeline : "";
   }
   onOpen() {
     this.modalEl.addClass("vt-project-modal");
@@ -1593,21 +1731,28 @@ var NewEventModal = class extends import_obsidian6.Modal {
     this.contentEl.scrollTop = 0;
     const c = this.contentEl;
     c.createEl("h2", { text: "New timeline record" });
-    new import_obsidian6.Setting(c).setName("Timeline").setDesc("Assign the new record to a timeline. It always remains available in All records.").addDropdown((d) => {
-      d.addOption("", "All records only");
-      for (const p of this.catalog.projects.filter((p2) => p2.status === "active")) d.addOption(p.id, p.name);
-      d.setValue(this.timeline).onChange((v) => this.timeline = v);
-    });
-    new import_obsidian6.Setting(c).setName("Title").addText((t) => t.setValue(this.title).onChange((v) => this.title = v));
-    new import_obsidian6.Setting(c).setName("Record type").addDropdown((d) => {
+    if (!this.project || this.project.mode !== "project" || !this.project.recordsFolder) {
+      c.createEl("p", { cls: "vt-section-note", text: "Records belong to a project from the moment they are created. Select or create a project timeline first; this record will be saved directly into that project." });
+      const actions2 = c.createDiv({ cls: "vt-editor-footer" }), manage = actions2.createEl("button", { text: "Choose or create a project" });
+      manage.onclick = () => {
+        this.close();
+        void this.plugin.openTimelineManager(true);
+      };
+      const close = actions2.createEl("button", { text: "Close" });
+      close.onclick = () => this.close();
+      return;
+    }
+    c.createEl("p", { cls: "vt-section-note", text: `This record will be created inside \u201C${this.project.name}\u201D.` });
+    new import_obsidian7.Setting(c).setName("Title").addText((t) => t.setValue(this.title).onChange((v) => this.title = v));
+    new import_obsidian7.Setting(c).setName("Record type").addDropdown((d) => {
       for (const type of RECORD_TYPES) d.addOption(type, type.replace("visual-timeline-", ""));
       d.setValue(this.type).onChange((v) => this.type = v);
     });
-    new import_obsidian6.Setting(c).setName("Start date").setDesc("AD ISO date or a BC year such as 930 BC").addText((t) => t.setValue(this.start).onChange((v) => this.start = v));
-    new import_obsidian6.Setting(c).setName("Display date").addText((t) => t.setValue(this.display).onChange((v) => this.display = v));
-    new import_obsidian6.Setting(c).setName("Layer").addText((t) => t.setValue(this.layer).onChange((v) => this.layer = v));
-    new import_obsidian6.Setting(c).setName("Category").addText((t) => t.setValue(this.category).onChange((v) => this.category = v));
-    new import_obsidian6.Setting(c).setName("Circa").addToggle((t) => t.setValue(this.circa).onChange((v) => this.circa = v));
+    new import_obsidian7.Setting(c).setName("Start date").setDesc("AD ISO date or a BC year such as 930 BC").addText((t) => t.setValue(this.start).onChange((v) => this.start = v));
+    new import_obsidian7.Setting(c).setName("Display date").addText((t) => t.setValue(this.display).onChange((v) => this.display = v));
+    new import_obsidian7.Setting(c).setName("Layer").addText((t) => t.setValue(this.layer).onChange((v) => this.layer = v));
+    new import_obsidian7.Setting(c).setName("Category").addText((t) => t.setValue(this.category).onChange((v) => this.category = v));
+    new import_obsidian7.Setting(c).setName("Circa").addToggle((t) => t.setValue(this.circa).onChange((v) => this.circa = v));
     const error = c.createEl("p", { cls: "vt-project-error", attr: { role: "alert" } }), actions = c.createDiv({ cls: "vt-editor-footer" });
     const cancel = actions.createEl("button", { text: "Cancel" });
     cancel.onclick = () => this.close();
@@ -1624,19 +1769,9 @@ var NewEventModal = class extends import_obsidian6.Modal {
       error.textContent = "";
       try {
         const date = { start: this.start.trim(), precision: /^\d{4}-\d{2}-\d{2}$/.test(this.start.trim()) ? "day" : "year", circa: this.circa, display: this.display.trim() || this.start.trim() };
-        const created = await this.plugin.repository.createEventRecord({ title: this.title.trim(), type: this.type, date, tags: ["timeline"], layers: [this.layer.trim() || "general"], categories: [this.category.trim() || "event"], locations: [], entities: [] });
-        if (this.timeline) {
-          try {
-            await this.plugin.projects.addRecord(this.timeline, created.id);
-          } catch (e) {
-            new import_obsidian6.Notice("Record created in All records, but timeline assignment failed. Add it through Manage timelines.");
-            this.close();
-            await this.plugin.refreshViews();
-            return;
-          }
-        }
+        await this.plugin.repository.createEventRecord({ title: this.title.trim(), type: this.type, date, tags: ["timeline"], layers: [this.layer.trim() || "general"], categories: [this.category.trim() || "event"], locations: [], entities: [] }, this.project);
         this.close();
-        new import_obsidian6.Notice("Timeline record created.");
+        new import_obsidian7.Notice("Timeline record created.");
         await this.plugin.refreshViews();
       } catch (e) {
         error.textContent = e instanceof Error ? e.message : "Could not create the record.";
@@ -1680,8 +1815,8 @@ var registerDashboardModule = (app, d) => register(app, "registerModule", d);
 var registerDashboardWidget = (app, d) => register(app, "registerWidget", d);
 
 // src/composition-modal.ts
-var import_obsidian7 = require("obsidian");
-var CompositionModal = class extends import_obsidian7.Modal {
+var import_obsidian8 = require("obsidian");
+var CompositionModal = class extends import_obsidian8.Modal {
   constructor(plugin, records, projectId = "") {
     super(plugin.app);
     this.plugin = plugin;
@@ -1706,15 +1841,15 @@ var CompositionModal = class extends import_obsidian7.Modal {
     c.createEl("h2", { text: "Configure layout" });
     c.createEl("p", { cls: "vt-section-note", text: "Rows share a date scale. Layers overlay within a row. Changes apply only when you save; historical notes are never changed." });
     const view = this.draft.views.find((v) => v.id === this.draft.active);
-    new import_obsidian7.Setting(c).setName("Saved view").addDropdown((d) => {
+    new import_obsidian8.Setting(c).setName("Saved view").addDropdown((d) => {
       for (const v of this.draft.views) d.addOption(v.id, v.name);
       d.setValue(view.id).onChange((id2) => {
         this.draft.active = id2;
         this.draw();
       });
     });
-    new import_obsidian7.Setting(c).setName("View name").addText((t) => t.setValue(view.name).onChange((v) => view.name = v));
-    new import_obsidian7.Setting(c).setName("Full-height year lines").setDesc("Extend the date ruler ticks vertically behind every row. Saved separately for each view.").addToggle((t) => t.setValue(view.yearGrid === true).onChange((v) => view.yearGrid = v));
+    new import_obsidian8.Setting(c).setName("View name").addText((t) => t.setValue(view.name).onChange((v) => view.name = v));
+    new import_obsidian8.Setting(c).setName("Full-height year lines").setDesc("Extend the date ruler ticks vertically behind every row. Saved separately for each view.").addToggle((t) => t.setValue(view.yearGrid === true).onChange((v) => view.yearGrid = v));
     const viewActions = c.createDiv({ cls: "vt-editor-actions" });
     this.button(viewActions, "New view", () => {
       const v = { id: uid(), name: "New view", rows: [newRow()] };
@@ -1743,8 +1878,8 @@ var CompositionModal = class extends import_obsidian7.Modal {
         view.rows.splice(index, 1);
         this.draw();
       });
-      new import_obsidian7.Setting(section).setName("Row name").addText((t) => t.setValue(row.name).onChange((v) => row.name = v));
-      new import_obsidian7.Setting(section).setName("Position").setDesc("1 is the first row. Changing the number shifts the other rows.").addText((t) => {
+      new import_obsidian8.Setting(section).setName("Row name").addText((t) => t.setValue(row.name).onChange((v) => row.name = v));
+      new import_obsidian8.Setting(section).setName("Position").setDesc("1 is the first row. Changing the number shifts the other rows.").addText((t) => {
         t.inputEl.type = "number";
         t.inputEl.min = "1";
         t.inputEl.max = String(view.rows.length);
@@ -1754,26 +1889,26 @@ var CompositionModal = class extends import_obsidian7.Modal {
           this.draw();
         };
       });
-      new import_obsidian7.Setting(section).setName("Minimum height").setDesc("CSS pixels, independent of zoom. Only historical lanes add height, never labels.").addText((t) => {
+      new import_obsidian8.Setting(section).setName("Minimum height").setDesc("CSS pixels, independent of zoom. Only historical lanes add height, never labels.").addText((t) => {
         t.inputEl.type = "number";
         t.inputEl.min = "120";
         t.inputEl.max = "1200";
         t.setValue(String(row.height)).onChange((v) => row.height = Math.max(120, Math.min(1200, Number(v) || 220)));
       });
-      new import_obsidian7.Setting(section).setName("Visible overlap tracks").setDesc("Additional overlaps become selectable count markers.").addDropdown((d) => {
+      new import_obsidian8.Setting(section).setName("Visible overlap tracks").setDesc("Additional overlaps become selectable count markers.").addDropdown((d) => {
         [1, 2, 3, 4, 5, 6].forEach((n) => d.addOption(String(n), String(n)));
         d.setValue(String(row.maxSubtracks || 3)).onChange((v) => row.maxSubtracks = Number(v));
       });
       const order = section.createEl("details");
       order.createEl("summary", { text: "Anchor ordering" });
-      new import_obsidian7.Setting(order).setName("Anchor IDs in preferred order").setDesc("Comma-separated stable IDs; unspecified anchors use date and ID order.").addText((t) => t.setValue((row.anchorOrder || []).join(", ")).onChange((v) => row.anchorOrder = v.split(",").map((s) => s.trim()).filter(Boolean)));
-      new import_obsidian7.Setting(section).setName("Show row").addToggle((t) => t.setValue(row.enabled).onChange((v) => row.enabled = v));
+      new import_obsidian8.Setting(order).setName("Anchor IDs in preferred order").setDesc("Comma-separated stable IDs; unspecified anchors use date and ID order.").addText((t) => t.setValue((row.anchorOrder || []).join(", ")).onChange((v) => row.anchorOrder = v.split(",").map((s) => s.trim()).filter(Boolean)));
+      new import_obsidian8.Setting(section).setName("Show row").addToggle((t) => t.setValue(row.enabled).onChange((v) => row.enabled = v));
       row.layers.forEach((layer, i) => {
         const details = section.createEl("details", { cls: "vt-layer-editor" });
         details.createEl("summary", { text: `${i + 1}. ${layer.name} \xB7 ${layer.plane} \xB7 ${layer.style}` });
-        new import_obsidian7.Setting(details).setName("Layer name").addText((t) => t.setValue(layer.name).onChange((v) => layer.name = v));
-        new import_obsidian7.Setting(details).setName("Show layer").addToggle((t) => t.setValue(layer.enabled).onChange((v) => layer.enabled = v));
-        new import_obsidian7.Setting(details).setName("Position within plane").setDesc("Layers later in the list draw on top. Backgrounds always stay behind foregrounds.").addText((t) => {
+        new import_obsidian8.Setting(details).setName("Layer name").addText((t) => t.setValue(layer.name).onChange((v) => layer.name = v));
+        new import_obsidian8.Setting(details).setName("Show layer").addToggle((t) => t.setValue(layer.enabled).onChange((v) => layer.enabled = v));
+        new import_obsidian8.Setting(details).setName("Position within plane").setDesc("Layers later in the list draw on top. Backgrounds always stay behind foregrounds.").addText((t) => {
           t.inputEl.type = "number";
           t.inputEl.min = "1";
           t.inputEl.max = String(row.layers.length);
@@ -1783,7 +1918,7 @@ var CompositionModal = class extends import_obsidian7.Modal {
             this.draw();
           };
         });
-        new import_obsidian7.Setting(details).setName("Move to row").addDropdown((d) => {
+        new import_obsidian8.Setting(details).setName("Move to row").addDropdown((d) => {
           view.rows.forEach((r) => d.addOption(r.id, r.name));
           d.setValue(row.id).onChange((id2) => {
             const destination = view.rows.find((r) => r.id === id2);
@@ -1795,7 +1930,7 @@ var CompositionModal = class extends import_obsidian7.Modal {
           });
         });
         this.filters(details, layer);
-        new import_obsidian7.Setting(details).setName("Attach to anchor layer").setDesc("Follow explicit relationships to records in another layer of this row. No name-based guessing.").addDropdown((d) => {
+        new import_obsidian8.Setting(details).setName("Attach to anchor layer").setDesc("Follow explicit relationships to records in another layer of this row. No name-based guessing.").addDropdown((d) => {
           var _a;
           d.addOption("", "Independent");
           for (const l of row.layers.filter((l2) => l2 !== layer && !l2.attachment)) d.addOption(l.id, l.name);
@@ -1808,14 +1943,14 @@ var CompositionModal = class extends import_obsidian7.Modal {
         if (layer.attachment) {
           const a = layer.attachment, anchor = row.layers.find((l) => l.id === a.anchorLayer);
           if (!anchor || !anchor.enabled) details.createEl("p", { text: "Warning: the anchor layer is unavailable. Records will appear in Unassigned." });
-          new import_obsidian7.Setting(details).setName("Relationship field").addDropdown((d) => {
+          new import_obsidian8.Setting(details).setName("Relationship field").addDropdown((d) => {
             Object.entries(this.plugin.settings.relationshipLabels).forEach(([k, v]) => d.addOption(k, v));
             d.setValue(a.relationship).onChange((v) => a.relationship = v);
           });
           const overrides = details.createEl("details");
           overrides.createEl("summary", { text: "Explicit anchor overrides" });
           overrides.createEl("p", { cls: "vt-section-note", text: "Overrides affect this display only. Notes are never rewritten." });
-          for (const record of this.records.filter((r) => matches(r, layer))) new import_obsidian7.Setting(overrides).setName(record.title).addDropdown((d) => {
+          for (const record of this.records.filter((r) => matches(r, layer))) new import_obsidian8.Setting(overrides).setName(record.title).addDropdown((d) => {
             d.addOption("", "Use note relationship");
             if (a.overrides[record.id]) d.addOption(a.overrides[record.id], a.overrides[record.id]);
             for (const r of this.records.filter((r2) => anchor && matches(r2, anchor))) d.addOption(r.id, r.title);
@@ -1825,15 +1960,15 @@ var CompositionModal = class extends import_obsidian7.Modal {
             });
           });
         }
-        new import_obsidian7.Setting(details).setName("Display style").addDropdown((d) => {
+        new import_obsidian8.Setting(details).setName("Display style").addDropdown((d) => {
           d.addOption("default", "Category default");
           STYLES.forEach((s) => d.addOption(s, s === "box" ? "Box / duration bar" : s[0].toUpperCase() + s.slice(1)));
           d.setValue(layer.style).onChange((v) => layer.style = v);
         });
-        new import_obsidian7.Setting(details).setName("Placement").addDropdown((d) => d.addOption("background", "Background").addOption("foreground", "Foreground").setValue(layer.plane).onChange((v) => layer.plane = v));
-        new import_obsidian7.Setting(details).setName("Band layout").setDesc("Integrated categories share their related streams\u2019 centerlines. Their own dates set the box boundaries; kingdom and ruler dates never change.").addDropdown((d) => d.addOption("integrated", "Integrated with related streams").addOption("context", "Separate context strip").addOption("lane", "Behind the assigned lane").setValue(layer.bandPlacement || "context").onChange((v) => layer.bandPlacement = v));
-        new import_obsidian7.Setting(details).setName("Integrated category shape").setDesc("A category box extends above and below the stream. Stream tint keeps the earlier contour-following treatment. Applies to integrated bands.").addDropdown((d) => d.addOption("box", "Category box \u2014 taller than stream").addOption("contour", "Stream tint and continuation").setValue(layer.bandShape || "box").onChange((v) => layer.bandShape = v));
-        new import_obsidian7.Setting(details).setName("Shape height (px)").setDesc("Leave blank for automatic: category 88, stream 40, item 14, context strip 32. Category boxes always leave at least 12px above and below their stream. Height never changes dates or zoom.").addText((t) => {
+        new import_obsidian8.Setting(details).setName("Placement").addDropdown((d) => d.addOption("background", "Background").addOption("foreground", "Foreground").setValue(layer.plane).onChange((v) => layer.plane = v));
+        new import_obsidian8.Setting(details).setName("Band layout").setDesc("Integrated categories share their related streams\u2019 centerlines. Their own dates set the box boundaries; kingdom and ruler dates never change.").addDropdown((d) => d.addOption("integrated", "Integrated with related streams").addOption("context", "Separate context strip").addOption("lane", "Behind the assigned lane").setValue(layer.bandPlacement || "context").onChange((v) => layer.bandPlacement = v));
+        new import_obsidian8.Setting(details).setName("Integrated category shape").setDesc("A category box extends above and below the stream. Stream tint keeps the earlier contour-following treatment. Applies to integrated bands.").addDropdown((d) => d.addOption("box", "Category box \u2014 taller than stream").addOption("contour", "Stream tint and continuation").setValue(layer.bandShape || "box").onChange((v) => layer.bandShape = v));
+        new import_obsidian8.Setting(details).setName("Shape height (px)").setDesc("Leave blank for automatic: category 88, stream 40, item 14, context strip 32. Category boxes always leave at least 12px above and below their stream. Height never changes dates or zoom.").addText((t) => {
           t.inputEl.type = "number";
           t.inputEl.min = "8";
           t.inputEl.max = "240";
@@ -1843,10 +1978,10 @@ var CompositionModal = class extends import_obsidian7.Modal {
             else if (Number.isFinite(Number(v))) layer.height = Math.max(8, Math.min(240, Number(v)));
           });
         });
-        new import_obsidian7.Setting(details).setName("Tint streams from attached durations").setDesc("When every attached duration uses one color, use it for that anchor stream too. Mixed colors retain the stream layer color.").addToggle((t) => t.setValue(layer.tintFromAttached === true).onChange((v) => layer.tintFromAttached = v));
-        new import_obsidian7.Setting(details).setName("Opacity").addSlider((s) => s.setLimits(10, 100, 5).setValue(layer.opacity * 100).setDynamicTooltip().onChange((v) => layer.opacity = v / 100));
-        new import_obsidian7.Setting(details).setName("Color").addColorPicker((p) => p.setValue(layer.color).onChange((v) => layer.color = v));
-        new import_obsidian7.Setting(details).setName("Labels").setDesc("Names use aligned rails and may truncate in dense periods. Labels never move records. Full names remain in details.").addDropdown((d) => d.addOption("adaptive", "Adaptive: aligned name rails").addOption("always", "Prefer visible names").addOption("selection", "On hover or keyboard focus").addOption("hidden", "Hidden (details remain)").setValue(layer.labels).onChange((v) => layer.labels = v));
+        new import_obsidian8.Setting(details).setName("Tint streams from attached durations").setDesc("When every attached duration uses one color, use it for that anchor stream too. Mixed colors retain the stream layer color.").addToggle((t) => t.setValue(layer.tintFromAttached === true).onChange((v) => layer.tintFromAttached = v));
+        new import_obsidian8.Setting(details).setName("Opacity").addSlider((s) => s.setLimits(10, 100, 5).setValue(layer.opacity * 100).setDynamicTooltip().onChange((v) => layer.opacity = v / 100));
+        new import_obsidian8.Setting(details).setName("Color").addColorPicker((p) => p.setValue(layer.color).onChange((v) => layer.color = v));
+        new import_obsidian8.Setting(details).setName("Labels").setDesc("Names use aligned rails and may truncate in dense periods. Labels never move records. Full names remain in details.").addDropdown((d) => d.addOption("adaptive", "Adaptive: aligned name rails").addOption("always", "Prefer visible names").addOption("selection", "On hover or keyboard focus").addOption("hidden", "Hidden (details remain)").setValue(layer.labels).onChange((v) => layer.labels = v));
         this.button(details, "Remove layer", () => {
           row.layers.splice(i, 1);
           this.draw();
@@ -1865,7 +2000,7 @@ var CompositionModal = class extends import_obsidian7.Modal {
     defaults2.createEl("summary", { text: "Category display defaults" });
     defaults2.createEl("p", { cls: "vt-section-note", text: "Used by layers set to Category default. For records with several categories, the first configured category wins; the note type is the fallback." });
     const categories = [.../* @__PURE__ */ new Set([...this.plugin.settings.categories, ...this.records.flatMap((r) => r.categories), ...RECORD_TYPES.map((t) => t.replace("visual-timeline-", "")), ...Object.keys(this.draft.categoryStyles)])].sort();
-    for (const category of categories) new import_obsidian7.Setting(defaults2).setName(category).addDropdown((d) => {
+    for (const category of categories) new import_obsidian8.Setting(defaults2).setName(category).addDropdown((d) => {
       d.addOption("", "Automatic (box)");
       STYLES.forEach((s) => d.addOption(s, s));
       d.setValue(this.draft.categoryStyles[category] || "").onChange((v) => {
@@ -1900,20 +2035,20 @@ var CompositionModal = class extends import_obsidian7.Modal {
     try {
       await this.plugin.saveComposition(this.projectId, normalizeComposition(this.draft));
     } catch (error) {
-      new import_obsidian7.Notice(`Could not save composition: ${String(error)}`);
+      new import_obsidian8.Notice(`Could not save composition: ${String(error)}`);
       return;
     }
     this.close();
     try {
       await this.plugin.refreshViews();
     } catch (e) {
-      new import_obsidian7.Notice("Composition saved. Reopen the timeline to refresh the view.");
+      new import_obsidian8.Notice("Composition saved. Reopen the timeline to refresh the view.");
     }
   }
 };
 
 // src/main.ts
-var VisualTimeline = class extends import_obsidian8.Plugin {
+var VisualTimeline = class extends import_obsidian9.Plugin {
   constructor() {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
@@ -1935,6 +2070,7 @@ var VisualTimeline = class extends import_obsidian8.Plugin {
     this.addCommand({ id: "new-timeline", name: "New timeline", callback: () => void this.openTimelineManager(true) });
     this.addCommand({ id: "manage-timelines", name: "Manage timelines", callback: () => void this.openTimelineManager() });
     this.addCommand({ id: "new-event", name: "New timeline event", callback: () => void this.openNewEvent() });
+    this.addCommand({ id: "move-legacy-records", name: "Move legacy records into active project", callback: () => void this.openActiveProjectMigration() });
     this.addCommand({ id: "refresh", name: "Refresh timeline", callback: () => void this.refreshViews() });
     this.addCommand({ id: "manage-layers", name: "Manage timeline layers", callback: () => this.openSettings() });
     this.addCommand({ id: "manage-categories", name: "Manage timeline categories", callback: () => this.openSettings() });
@@ -1990,9 +2126,9 @@ var VisualTimeline = class extends import_obsidian8.Plugin {
   }
   async openNewEvent() {
     try {
-      new NewEventModal(this.app, this, await this.projects.all()).open();
+      new NewEventModal(this.app, this, await this.projects.activeProject(this.settings.activeTimeline || "")).open();
     } catch (error) {
-      new import_obsidian8.Notice(`Could not load timelines: ${String(error)}`);
+      new import_obsidian9.Notice(`Could not load project: ${String(error)}`);
     }
   }
   async openTimelineManager(create = false) {
@@ -2000,15 +2136,30 @@ var VisualTimeline = class extends import_obsidian8.Plugin {
       const [catalog, records] = await Promise.all([this.projects.all(), this.repository.all()]);
       new TimelineManagerModal(this, catalog, records, create).open();
     } catch (error) {
-      new import_obsidian8.Notice(`Could not load timelines: ${String(error)}`);
+      new import_obsidian9.Notice(`Could not load timelines: ${String(error)}`);
     }
+  }
+  async openActiveProjectMigration() {
+    try {
+      const project2 = await this.projects.activeProject(this.settings.activeTimeline || "");
+      if (!project2) {
+        new import_obsidian9.Notice("Choose or create a project timeline first.");
+        return;
+      }
+      this.openProjectMigration(project2);
+    } catch (error) {
+      new import_obsidian9.Notice(`Could not prepare migration: ${String(error)}`);
+    }
+  }
+  openProjectMigration(project2) {
+    new ProjectMigrationModal(this, project2).open();
   }
   async openComposition() {
     try {
       const [catalog, records] = await Promise.all([this.projects.all(), this.repository.all()]), project2 = activeProject(this.settings, catalog);
       new CompositionModal(this, recordsForTimeline(records, project2), (project2 == null ? void 0 : project2.id) || "").open();
     } catch (error) {
-      new import_obsidian8.Notice(`Could not open layouts: ${String(error)}`);
+      new import_obsidian9.Notice(`Could not open layouts: ${String(error)}`);
     }
   }
   async openDashboard() {
