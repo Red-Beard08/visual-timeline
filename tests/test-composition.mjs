@@ -61,6 +61,15 @@ for(const span of [200,10000]){
 const names=placeLabels(crowded.items,1000,s=>s.length*7,crowded.height);
 assert.equal(names.length,crowded.items.length,'Clustered short items must still have name labels');
 assert.ok(names.every(n=>n.text.length&&n.x>=0&&n.x+n.width<=1000));
+const nameLayer=newLayer('Events','person');nameLayer.style='dot';
+const narrowEvent={...record('Event','person','930 BC','928 BC'),title:'The Community at Jerusalem'};
+const nameLayout=layoutRow(newRow('Names',[nameLayer]),[narrowEvent],bounds,1000,{});
+const fullName=placeLabels(nameLayout.items,1000,s=>s.length*8,nameLayout.height);
+assert.equal(fullName[0].text,narrowEvent.title,'Use the complete title when any collision-free rail slot can fit it, even when the dated span is short');
+const longEvent={...narrowEvent,title:'The Apostolic Community at Jerusalem'};
+const longLayout=layoutRow(newRow('Names',[nameLayer]),[longEvent],bounds,1000,{});
+const croppedName=placeLabels(longLayout.items,110,s=>s.length*7,longLayout.height);
+assert.equal(croppedName[0].text,'The Apostolic…','Fallback truncation retains complete words before the ellipsis');
 // Same-year markers must not displace subsequent durations; actual overlaps still do.
 for(const [label,date,end]of [['Northern succession','885 BC','874 BC'],['Judah succession','841 BC','835 BC'],['Day boundary','0900-01-02','0900-01-03']]){
   const marker=record(label+' marker','person',date,date,{related_to:['A']}),successor=record(label+' successor','person',date,end,{related_to:['A']});

@@ -186,19 +186,48 @@ export function placeLabels(items:PlacedItem[],width:number,measure:(text:string
   const boxes:LabelBox[]=[];
   const anchors=items.filter(p=>p.isAnchor);
   const minAnchor=Math.min(...anchors.map(p=>p.y)),maxAnchor=Math.max(...anchors.map(p=>p.y));
-  const truncate=(s:string,w:number):string=>{
-    if(measure(s)<=w)return s;
-    let n=s.length;while(n>1&&measure(s.slice(0,n)+'…')>w)n--;
-    return s.slice(0,n)+'…';
+  const truncate=(value:string,maxWidth:number):string=>{
+    if(measure(value)<=maxWidth)return value;
+    if(measure('…')>maxWidth)return '';
+    const words=value.trim().split(/\s+/u);
+    let complete='';
+    for(const word of words){
+      const next=complete?`${complete} ${word}`:word;
+      if(measure(`${next}…`)>maxWidth)break;
+      complete=next;
+    }
+    if(complete)return `${complete}…`;
+    // A single long word still gets a readable identifier rather than vanishing.
+    const characters=Array.from(value.trim());let count=characters.length;
+    while(count>1&&measure(`${characters.slice(0,count).join('')}…`)>maxWidth)count--;
+    return `${characters.slice(0,count).join('')}…`;
   };
-  const collision=(b:LabelBox)=>boxes.some(a=>b.x<a.x+a.width+6&&b.x+b.width+6>a.x&&b.y<a.y+a.height+3&&b.y+b.height+3>a.y);
+  const freeSlots=(y:number)=>{
+    const blockers=boxes.filter(a=>y<a.y+a.height+3&&y+15+3>a.y)
+      .map(a=>({start:Math.max(4,a.x-6),end:Math.min(width-4,a.x+a.width+6)}))
+      .filter(a=>a.end>a.start).sort((a,b)=>a.start-b.start);
+    const slots:{start:number;end:number}[]=[];let cursor=4;
+    for(const blocker of blockers){
+      if(blocker.start>cursor)slots.push({start:cursor,end:blocker.start});
+      cursor=Math.max(cursor,blocker.end);
+    }
+    if(cursor<width-4)slots.push({start:cursor,end:width-4});
+    return slots;
+  };
+  const closestStart=(slot:{start:number;end:number},textWidth:number,sourceX:number)=>{
+    const maxStart=slot.end-textWidth;
+    const candidates=[sourceX,sourceX-textWidth,sourceX-textWidth/2]
+      .map(x=>Math.max(slot.start,Math.min(maxStart,x)));
+    return candidates.sort((a,b)=>{
+      const distance=(x:number)=>sourceX<x?x-sourceX:sourceX>x+textWidth?sourceX-(x+textWidth):0;
+      return distance(a)-distance(b)||(a<sourceX?1:0)-(b<sourceX?1:0);
+    })[0];
+  };
   for(const p of [...items].sort((a,b)=>Number(b.isAnchor)-Number(a.isAnchor)||chronological(a,b))){
     if(!['adaptive','always'].includes(p.layer.labels))continue;
     const category=p.integratedAnchors?.length&&p.layer.bandShape!=='contour';
     const sx=p.isAnchor?Math.min(p.xEnd-4,p.curve.settle+10):category?Math.max(p.x,p.integratedAnchors![0].x)+8:isInstantItem(p)?p.x:p.x+2;
     const sy=centerAt(p.curve,sx)+(isInstantItem(p)?p.markerOffset||0:0);
-    const available=Math.max(28,p.xEnd-sx-8);
-    const preferred=p.isAnchor||p.integratedAnchors?.length?Math.min(340,available):Math.min(170,Math.max(60,available));
     const anchor=anchors.find(a=>a.key===p.anchorKey);
     const clearance=anchor?Math.max(anchor.half,...items.filter(i=>i.integratedAnchors?.includes(anchor)&&i.layer.bandShape!=='contour').map(i=>categoryHalf(i,anchor))):p.half;
     // Keep callouts in their own kingdom's text rail, never in the other branch.
@@ -212,29 +241,26 @@ export function placeLabels(items:PlacedItem[],width:number,measure:(text:string
         : p.isAnchor?[sy+p.half+7]
           : [sy-clearance-30,sy-clearance-52,sy-clearance-74,sy-clearance-96];
     const kind=p.isAnchor?'anchor':p.context||p.integratedAnchors?.length?'context':'record';
-    let placed=false;
-    for(const budget of [preferred,Math.min(preferred,100),Math.min(preferred,68),40,34]){
-      const name=truncate(p.record.title,Math.min(budget,width-12)),w=measure(name);
-      const starts=[sx];
-      // Names may use space along their actual duration, never an unrelated date lane.
-      if(!p.isAnchor&&!p.context)for(let dx=18;dx<=Math.min(100,Math.max(18,p.xEnd-sx));dx+=18)starts.push(sx+dx);
-      search:for(const x0 of starts)for(const y of rail){
-        const x=Math.max(4,Math.min(x0,width-w-4));
-        if(y<4||y+15>height-4)continue;
-        const box:LabelBox={key:p.key,x,y,width:w,height:15,text:name,sourceX:sx,sourceY:sy,leader:kind==='record',kind};
-        if(collision(box))continue;
-        boxes.push(box);placed=true;break search;
-      }
-      if(placed)break;
-    }
-    // Dense configurations still get an identifier in the remaining free text slots.
-    if(!placed){
-      const text=truncate(p.record.title,34),w=measure(text);
-      outer:for(const y of rail.filter(y=>y>=4&&y+15<=height-4))for(const shift of [0,-18,18,-36,36,-54,54,-72,72,-90,90]){const x=Math.max(4,Math.min(sx+shift,width-w-4));
-        const b:LabelBox={key:p.key,x,y,width:w,height:15,text,sourceX:sx,sourceY:sy,leader:kind==='record',kind};
-        if(!collision(b)){boxes.push(b);break outer;}
-      }
-    }
+    const slots=rail.filter(y=>y>=4&&y+15<=height-4).flatMap((y,railIndex)=>freeSlots(y).map(slot=>({y,railIndex,...slot})));
+    if(!slots.length)continue;
+    const fullWidth=measure(p.record.title);
+    const fullFit=slots.filter(slot=>slot.end-slot.start>=fullWidth).map(slot=>({
+      ...slot,x:closestStart(slot,fullWidth,sx),text:p.record.title,width:fullWidth
+    }));
+    // Keep a full title whenever any nearby name-rail slot can hold it. Only
+    // abbreviate after checking every appropriate rail and every open segment.
+    const candidates=fullFit.length?fullFit:slots.map(slot=>{
+      const available=Math.min(340,slot.end-slot.start);
+      const text=truncate(p.record.title,available),labelWidth=measure(text);
+      return {...slot,x:closestStart(slot,labelWidth,sx),text,width:labelWidth};
+    }).filter(slot=>slot.width>0);
+    candidates.sort((a,b)=>{
+      if(!fullFit.length&&(b.width-a.width)!==0)return b.width-a.width;
+      const distance=(slot:{x:number;width:number})=>sx<slot.x?slot.x-sx:sx>slot.x+slot.width?sx-(slot.x+slot.width):0;
+      return distance(a)-distance(b)||a.railIndex-b.railIndex||(a.x<sx?1:0)-(b.x<sx?1:0);
+    });
+    const chosen=candidates[0];if(!chosen)continue;
+    boxes.push({key:p.key,x:chosen.x,y:chosen.y,width:chosen.width,height:15,text:chosen.text,sourceX:sx,sourceY:sy,leader:kind==='record',kind});
   }
   return boxes;
 }

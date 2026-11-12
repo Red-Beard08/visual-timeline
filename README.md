@@ -1,5 +1,9 @@
 # Visual Timeline
 
+## Adaptive name labels (1.8.1)
+
+Timeline labels now search all available segments on their assigned name rails before shortening a title, so a complete name can appear even when its dated span is short. When no collision-free slot is wide enough, labels truncate at a word boundary with an ellipsis; a single long word is shortened only when needed. The full title remains available through selection and accessibility text. Label changes never affect historical position, lane assignment, or zoom geometry.
+
 ## Project-owned timelines (1.8)
 
 Each timeline is now a standalone project folder. Choose the active project from the selector at the top; **New item** automatically saves into that project's `Records/` folder. The creation form has no timeline picker, and records cannot be assigned to multiple projects. The folder is the source of ownership, with `timeline_project_id` stored automatically as a readable cross-check.

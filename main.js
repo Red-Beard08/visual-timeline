@@ -1020,58 +1020,79 @@ function layoutRow(row, records, bounds, width, styles) {
   return { items, lanes, clusters, height, diagnostics };
 }
 function placeLabels(items, width, measure, height = 300) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c;
   const boxes = [];
   const anchors = items.filter((p) => p.isAnchor);
   const minAnchor = Math.min(...anchors.map((p) => p.y)), maxAnchor = Math.max(...anchors.map((p) => p.y));
-  const truncate = (s, w) => {
-    if (measure(s) <= w) return s;
-    let n = s.length;
-    while (n > 1 && measure(s.slice(0, n) + "\u2026") > w) n--;
-    return s.slice(0, n) + "\u2026";
+  const truncate = (value, maxWidth) => {
+    if (measure(value) <= maxWidth) return value;
+    if (measure("\u2026") > maxWidth) return "";
+    const words = value.trim().split(/\s+/u);
+    let complete = "";
+    for (const word of words) {
+      const next = complete ? `${complete} ${word}` : word;
+      if (measure(`${next}\u2026`) > maxWidth) break;
+      complete = next;
+    }
+    if (complete) return `${complete}\u2026`;
+    const characters = Array.from(value.trim());
+    let count = characters.length;
+    while (count > 1 && measure(`${characters.slice(0, count).join("")}\u2026`) > maxWidth) count--;
+    return `${characters.slice(0, count).join("")}\u2026`;
   };
-  const collision = (b) => boxes.some((a) => b.x < a.x + a.width + 6 && b.x + b.width + 6 > a.x && b.y < a.y + a.height + 3 && b.y + b.height + 3 > a.y);
+  const freeSlots = (y) => {
+    const blockers = boxes.filter((a) => y < a.y + a.height + 3 && y + 15 + 3 > a.y).map((a) => ({ start: Math.max(4, a.x - 6), end: Math.min(width - 4, a.x + a.width + 6) })).filter((a) => a.end > a.start).sort((a, b) => a.start - b.start);
+    const slots = [];
+    let cursor = 4;
+    for (const blocker of blockers) {
+      if (blocker.start > cursor) slots.push({ start: cursor, end: blocker.start });
+      cursor = Math.max(cursor, blocker.end);
+    }
+    if (cursor < width - 4) slots.push({ start: cursor, end: width - 4 });
+    return slots;
+  };
+  const closestStart = (slot, textWidth, sourceX) => {
+    const maxStart = slot.end - textWidth;
+    const candidates = [sourceX, sourceX - textWidth, sourceX - textWidth / 2].map((x) => Math.max(slot.start, Math.min(maxStart, x)));
+    return candidates.sort((a, b) => {
+      const distance = (x) => sourceX < x ? x - sourceX : sourceX > x + textWidth ? sourceX - (x + textWidth) : 0;
+      return distance(a) - distance(b) || (a < sourceX ? 1 : 0) - (b < sourceX ? 1 : 0);
+    })[0];
+  };
   for (const p of [...items].sort((a, b) => Number(b.isAnchor) - Number(a.isAnchor) || chronological(a, b))) {
     if (!["adaptive", "always"].includes(p.layer.labels)) continue;
     const category = ((_a = p.integratedAnchors) == null ? void 0 : _a.length) && p.layer.bandShape !== "contour";
     const sx = p.isAnchor ? Math.min(p.xEnd - 4, p.curve.settle + 10) : category ? Math.max(p.x, p.integratedAnchors[0].x) + 8 : isInstantItem(p) ? p.x : p.x + 2;
     const sy = centerAt(p.curve, sx) + (isInstantItem(p) ? p.markerOffset || 0 : 0);
-    const available = Math.max(28, p.xEnd - sx - 8);
-    const preferred = p.isAnchor || ((_b = p.integratedAnchors) == null ? void 0 : _b.length) ? Math.min(340, available) : Math.min(170, Math.max(60, available));
     const anchor = anchors.find((a) => a.key === p.anchorKey);
     const clearance = anchor ? Math.max(anchor.half, ...items.filter((i) => {
       var _a2;
       return ((_a2 = i.integratedAnchors) == null ? void 0 : _a2.includes(anchor)) && i.layer.bandShape !== "contour";
     }).map((i) => categoryHalf(i, anchor))) : p.half;
-    const rail = category ? [sy - categoryHalf(p, p.integratedAnchors[0]) + 7] : ((_c = p.integratedAnchors) == null ? void 0 : _c.length) ? [sy + 9, sy - 22] : p.context ? [p.y - 7] : anchor && minAnchor !== maxAnchor && anchor.y === minAnchor ? [anchor.y - clearance - 30, anchor.y - clearance - 52, anchor.y - clearance - 74, anchor.y - clearance - 96] : anchor && minAnchor !== maxAnchor && anchor.y === maxAnchor ? [anchor.y + clearance + 10, anchor.y + clearance + 32, anchor.y + clearance + 54, anchor.y + clearance + 76] : p.isAnchor ? [sy + p.half + 7] : [sy - clearance - 30, sy - clearance - 52, sy - clearance - 74, sy - clearance - 96];
-    const kind = p.isAnchor ? "anchor" : p.context || ((_d = p.integratedAnchors) == null ? void 0 : _d.length) ? "context" : "record";
-    let placed = false;
-    for (const budget of [preferred, Math.min(preferred, 100), Math.min(preferred, 68), 40, 34]) {
-      const name = truncate(p.record.title, Math.min(budget, width - 12)), w = measure(name);
-      const starts = [sx];
-      if (!p.isAnchor && !p.context) for (let dx = 18; dx <= Math.min(100, Math.max(18, p.xEnd - sx)); dx += 18) starts.push(sx + dx);
-      search: for (const x0 of starts) for (const y of rail) {
-        const x = Math.max(4, Math.min(x0, width - w - 4));
-        if (y < 4 || y + 15 > height - 4) continue;
-        const box = { key: p.key, x, y, width: w, height: 15, text: name, sourceX: sx, sourceY: sy, leader: kind === "record", kind };
-        if (collision(box)) continue;
-        boxes.push(box);
-        placed = true;
-        break search;
-      }
-      if (placed) break;
-    }
-    if (!placed) {
-      const text2 = truncate(p.record.title, 34), w = measure(text2);
-      outer: for (const y of rail.filter((y2) => y2 >= 4 && y2 + 15 <= height - 4)) for (const shift of [0, -18, 18, -36, 36, -54, 54, -72, 72, -90, 90]) {
-        const x = Math.max(4, Math.min(sx + shift, width - w - 4));
-        const b = { key: p.key, x, y, width: w, height: 15, text: text2, sourceX: sx, sourceY: sy, leader: kind === "record", kind };
-        if (!collision(b)) {
-          boxes.push(b);
-          break outer;
-        }
-      }
-    }
+    const rail = category ? [sy - categoryHalf(p, p.integratedAnchors[0]) + 7] : ((_b = p.integratedAnchors) == null ? void 0 : _b.length) ? [sy + 9, sy - 22] : p.context ? [p.y - 7] : anchor && minAnchor !== maxAnchor && anchor.y === minAnchor ? [anchor.y - clearance - 30, anchor.y - clearance - 52, anchor.y - clearance - 74, anchor.y - clearance - 96] : anchor && minAnchor !== maxAnchor && anchor.y === maxAnchor ? [anchor.y + clearance + 10, anchor.y + clearance + 32, anchor.y + clearance + 54, anchor.y + clearance + 76] : p.isAnchor ? [sy + p.half + 7] : [sy - clearance - 30, sy - clearance - 52, sy - clearance - 74, sy - clearance - 96];
+    const kind = p.isAnchor ? "anchor" : p.context || ((_c = p.integratedAnchors) == null ? void 0 : _c.length) ? "context" : "record";
+    const slots = rail.filter((y) => y >= 4 && y + 15 <= height - 4).flatMap((y, railIndex) => freeSlots(y).map((slot) => ({ y, railIndex, ...slot })));
+    if (!slots.length) continue;
+    const fullWidth = measure(p.record.title);
+    const fullFit = slots.filter((slot) => slot.end - slot.start >= fullWidth).map((slot) => ({
+      ...slot,
+      x: closestStart(slot, fullWidth, sx),
+      text: p.record.title,
+      width: fullWidth
+    }));
+    const candidates = fullFit.length ? fullFit : slots.map((slot) => {
+      const available = Math.min(340, slot.end - slot.start);
+      const text2 = truncate(p.record.title, available), labelWidth = measure(text2);
+      return { ...slot, x: closestStart(slot, labelWidth, sx), text: text2, width: labelWidth };
+    }).filter((slot) => slot.width > 0);
+    candidates.sort((a, b) => {
+      if (!fullFit.length && b.width - a.width !== 0) return b.width - a.width;
+      const distance = (slot) => sx < slot.x ? slot.x - sx : sx > slot.x + slot.width ? sx - (slot.x + slot.width) : 0;
+      return distance(a) - distance(b) || a.railIndex - b.railIndex || (a.x < sx ? 1 : 0) - (b.x < sx ? 1 : 0);
+    });
+    const chosen = candidates[0];
+    if (!chosen) continue;
+    boxes.push({ key: p.key, x: chosen.x, y: chosen.y, width: chosen.width, height: 15, text: chosen.text, sourceX: sx, sourceY: sy, leader: kind === "record", kind });
   }
   return boxes;
 }
