@@ -46,6 +46,15 @@ const cyclic=layoutRow(newRow('Cycle',[anchors]),[{...a,relations:{...rel(),spli
 const conflict=layoutRow(row,[a,{...b,relations:{...rel(),preceded_by:['A','C']}},c],bounds,1000,{});assert.ok(conflict.diagnostics.some(d=>d.message.includes('Conflicting')));
 const invalid=layoutRow(row,[{...king,date:{start:'bad'}},{...a,date:{start:'800 BC',end:'900 BC'}}],bounds,1000,{});assert.equal(invalid.items.length,0);assert.equal(invalid.diagnostics.length,2);
 const l=newLayer();l.tags=['history'];assert.ok(matches(a,l));l.categories=['person'];assert.ok(!matches(a,l));l.style='line';assert.equal(styleFor(a,l,{kingdom:'box'}),'line');
+const categoryLayer=newLayer('General events','event');categoryLayer.excludeCategories=['doctrinal-development','formal-act'];
+const ordinaryEvent={...record('Ordinary event','event','AD 60'),categories:['apostolic-mission']};
+const formalEvent={...record('Formal meeting','event','AD 60'),categories:['doctrinal-development','formal-act']};
+assert.ok(matches(ordinaryEvent,categoryLayer));assert.ok(!matches(formalEvent,categoryLayer),'Excluded category records cannot leak into a general-event layer');
+categoryLayer.categories=['formal-act'];assert.ok(!matches(formalEvent,categoryLayer),'Explicit exclusions win over matching include categories');
+const excludedConfig=defaults();excludedConfig.views[0].rows[0].layers[0].excludeCategories=['formal-act'];
+assert.deepEqual(normalizeComposition(excludedConfig).views[0].rows[0].layers[0].excludeCategories,['formal-act'],'Category exclusions survive settings normalization');
+const legacyLayer=JSON.parse(JSON.stringify(excludedConfig));delete legacyLayer.views[0].rows[0].layers[0].excludeCategories;
+assert.deepEqual(normalizeComposition(legacyLayer).views[0].rows[0].layers[0].excludeCategories,[],'Older compositions safely default to no category exclusions');
 const order=['a','b','c'];reorder(order,2,0);assert.deepEqual(order,['c','a','b']);
 console.log('Validated v2 compatibility, date precision, explicit anchors, stable geometry, label isolation, overlap/cluster coverage, and diagnostics.');
 // Long anchors and short attached spans must render the same exact curve, not different sampling densities.

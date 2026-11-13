@@ -1,5 +1,9 @@
 # Visual Timeline
 
+## Category exclusions and parallel analysis (1.8.4)
+
+Layer filters can include categories in the usual way and can now explicitly exclude categories. This lets one record appear in the correct parallel section without duplicating its note—for example, general events above and doctrine/formal-act records below. Exclusions always win when a record matches both an included and excluded category. The dashboard filter is labeled **Record labels** to distinguish note metadata from visual rows and layers.
+
 ## Adaptive name labels (1.8.3)
 
 Timeline labels first search collision-free space inside the item's nearby date neighborhood. Point labels can use open vertical rails anywhere inside a bounded 320px neighborhood centered on their date; neighboring marker midpoints no longer squeeze that space to a few pixels. Duration and category labels can use their own recorded span. A title truncates at a word boundary only when no collision-free local slot can hold it; a single long word is shortened only when needed. The full title remains available through selection and accessibility text. Label changes never affect historical position, lane assignment, or zoom geometry.
@@ -89,7 +93,7 @@ In Configure timeline, attach a layer to another layer using explicit relationsh
 Open **Configure timeline** on the dashboard, or run `visual-timeline:configure-timeline`.
 
 - Add any number of named rows, change their numeric position, set minimum height, or hide/remove them. Rows grow to accommodate collision lanes instead of clipping records.
-- Add layers to each row. Filter by note type, category, and tag. An empty filter means all; choices within a group match any value, while groups combine with AND.
+- Add layers to each row. Include by note type, category, and tag; optionally exclude matching categories. An empty include filter means all; choices within a group match any value, while groups combine with AND. Category exclusions always win and let a record appear in one appropriate parallel section without duplicating its note.
 - Place layers in the background or foreground. Numeric order controls stacking within each plane; backgrounds always draw first. Move layers between rows without rebuilding their filters.
 - Choose streams, lines, dots, boxes/duration bars, or shaded bands. Set color, opacity, and label visibility. Dots mark the start date, while the other styles show duration.
 - Set category display defaults, then let individual layers inherit or override them. The first configured category in a note's category list wins; the note type is the fallback.

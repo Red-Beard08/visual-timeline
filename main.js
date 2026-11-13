@@ -343,7 +343,7 @@ function contrastText(color) {
 }
 var uid = () => `view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 function newLayer(name = "New layer", type = "") {
-  return { id: uid(), name, enabled: true, types: type ? [`visual-timeline-${type}`] : [], categories: [], tags: [], style: "default", plane: "foreground", opacity: 1, color: "#659fa0", labels: "adaptive", bandPlacement: "context", bandShape: "box", tintFromAttached: false };
+  return { id: uid(), name, enabled: true, types: type ? [`visual-timeline-${type}`] : [], categories: [], excludeCategories: [], tags: [], style: "default", plane: "foreground", opacity: 1, color: "#659fa0", labels: "adaptive", bandPlacement: "context", bandShape: "box", tintFromAttached: false };
 }
 function newRow(name = "New row", layers = []) {
   return { id: uid(), name, height: 220, enabled: true, layers, anchorOrder: [], maxSubtracks: 3 };
@@ -369,7 +369,7 @@ function normalizeComposition(value) {
   if (!value || typeof value !== "object") return defaults();
   const raw = value;
   if (!Array.isArray(raw.views) || !raw.views.length) return defaults();
-  const views = raw.views.filter((v) => v && typeof v === "object").map((v) => ({ id: typeof v.id === "string" ? v.id : uid(), name: String(v.name || "Untitled view"), ...v.yearGrid !== void 0 ? { yearGrid: v.yearGrid === true } : {}, rows: (Array.isArray(v.rows) ? v.rows : []).filter(Boolean).map((r) => ({ id: r.id || uid(), name: String(r.name || "Untitled row"), height: finite(r.height, 220, 120, 1200), anchorOrder: strings(r.anchorOrder), maxSubtracks: Math.round(finite(r.maxSubtracks, 3, 1, 6)), enabled: r.enabled !== false, layers: (Array.isArray(r.layers) ? r.layers : []).filter(Boolean).map((l) => ({ ...newLayer(), id: l.id || uid(), name: String(l.name || "Untitled layer"), enabled: l.enabled !== false, types: strings(l.types), categories: strings(l.categories), tags: strings(l.tags), style: STYLES.includes(l.style) ? l.style : "default", plane: l.plane === "background" ? "background" : "foreground", opacity: finite(l.opacity, 1, 0.1, 1), color: /^#[\da-f]{6}$/i.test(l.color) ? l.color : "#659fa0", labels: ["adaptive", "always", "selection", "hidden"].includes(l.labels) ? l.labels : "adaptive", attachment: normalizeAttachment(l.attachment) })) })) }));
+  const views = raw.views.filter((v) => v && typeof v === "object").map((v) => ({ id: typeof v.id === "string" ? v.id : uid(), name: String(v.name || "Untitled view"), ...v.yearGrid !== void 0 ? { yearGrid: v.yearGrid === true } : {}, rows: (Array.isArray(v.rows) ? v.rows : []).filter(Boolean).map((r) => ({ id: r.id || uid(), name: String(r.name || "Untitled row"), height: finite(r.height, 220, 120, 1200), anchorOrder: strings(r.anchorOrder), maxSubtracks: Math.round(finite(r.maxSubtracks, 3, 1, 6)), enabled: r.enabled !== false, layers: (Array.isArray(r.layers) ? r.layers : []).filter(Boolean).map((l) => ({ ...newLayer(), id: l.id || uid(), name: String(l.name || "Untitled layer"), enabled: l.enabled !== false, types: strings(l.types), categories: strings(l.categories), excludeCategories: strings(l.excludeCategories), tags: strings(l.tags), style: STYLES.includes(l.style) ? l.style : "default", plane: l.plane === "background" ? "background" : "foreground", opacity: finite(l.opacity, 1, 0.1, 1), color: /^#[\da-f]{6}$/i.test(l.color) ? l.color : "#659fa0", labels: ["adaptive", "always", "selection", "hidden"].includes(l.labels) ? l.labels : "adaptive", attachment: normalizeAttachment(l.attachment) })) })) }));
   if (!views.length) return defaults();
   for (const view of views) for (const row of view.rows) for (const layer of row.layers) {
     const stored = (_d = (_c = (_b = (_a = raw.views.find((v) => v.id === view.id)) == null ? void 0 : _a.rows) == null ? void 0 : _b.find((r) => r.id === row.id)) == null ? void 0 : _c.layers) == null ? void 0 : _d.find((l) => l.id === layer.id);
@@ -384,7 +384,8 @@ function normalizeComposition(value) {
 }
 function matches(record, layer) {
   const norm = (s) => s.replace(/^#/, "").toLocaleLowerCase();
-  return layer.enabled && (!layer.types.length || layer.types.includes(record.type)) && (!layer.categories.length || layer.categories.some((c) => record.categories.map(norm).includes(norm(c)))) && (!layer.tags.length || layer.tags.some((t) => record.tags.map(norm).includes(norm(t))));
+  const categories = record.categories.map(norm);
+  return layer.enabled && (!layer.types.length || layer.types.includes(record.type)) && (!layer.categories.length || layer.categories.some((c) => categories.includes(norm(c)))) && !(layer.excludeCategories || []).some((c) => categories.includes(norm(c))) && (!layer.tags.length || layer.tags.some((t) => record.tags.map(norm).includes(norm(t))));
 }
 function styleFor(r, l, defaults2) {
   return l.style !== "default" ? l.style : r.categories.map((c) => defaults2[c]).find(Boolean) || defaults2[r.type.replace("visual-timeline-", "")] || "box";
@@ -1692,8 +1693,8 @@ var TimelineView = class extends import_obsidian6.ItemView {
       this.query = search.value;
       this.draw(root);
     };
-    const select = controls.createEl("select", { attr: { "aria-label": "Filter by note layer" } });
-    select.createEl("option", { text: "All note layers", value: "" });
+    const select = controls.createEl("select", { attr: { "aria-label": "Filter by record label" } });
+    select.createEl("option", { text: "All record labels", value: "" });
     for (const l of [.../* @__PURE__ */ new Set([...this.plugin.settings.layers, ...this.records.flatMap((r) => r.layers)])]) select.createEl("option", { text: l, value: l });
     select.value = this.layer;
     select.onchange = () => {
@@ -2043,12 +2044,13 @@ var CompositionModal = class extends import_obsidian8.Modal {
     save.addClass("mod-cta");
   }
   filters(parent, layer) {
-    parent.createEl("p", { cls: "vt-section-note", text: "No selection means all. Options within each group match ANY; different groups must ALL match." });
+    var _a;
+    parent.createEl("p", { cls: "vt-section-note", text: "No selection means all. Included values within a group match ANY; different groups must ALL match. Excluded categories always hide matching records." });
     const groups = [["types", "Note types", RECORD_TYPES], ["categories", "Categories", [...this.plugin.settings.categories, ...this.records.flatMap((r) => r.categories), ...layer.categories]], ["tags", "Tags", [...this.records.flatMap((r) => r.tags), ...layer.tags]]];
-    for (const [key, title, values] of groups) {
+    for (const [key, title, values2] of groups) {
       const field = parent.createEl("fieldset", { cls: "vt-filter-options" });
       field.createEl("legend", { text: title });
-      for (const value of [...new Set(values)].sort()) {
+      for (const value of [...new Set(values2)].sort()) {
         const label = field.createEl("label");
         const input = label.createEl("input", { type: "checkbox" });
         input.checked = layer[key].includes(value);
@@ -2057,7 +2059,22 @@ var CompositionModal = class extends import_obsidian8.Modal {
           layer[key] = input.checked ? [...layer[key], value] : layer[key].filter((v) => v !== value);
         };
       }
-      if (!values.length) field.createEl("p", { text: "No options found in current notes." });
+      if (!values2.length) field.createEl("p", { text: "No options found in current notes." });
+    }
+    const excluded = parent.createEl("details", { cls: "vt-filter-exclusions" });
+    excluded.createEl("summary", { text: `Exclude categories${((_a = layer.excludeCategories) == null ? void 0 : _a.length) ? ` \xB7 ${layer.excludeCategories.length}` : ""}` });
+    const values = [.../* @__PURE__ */ new Set([...this.plugin.settings.categories, ...this.records.flatMap((r) => r.categories), ...layer.excludeCategories || []])].sort();
+    if (!values.length) excluded.createEl("p", { text: "No categories found in current notes." });
+    for (const value of values) {
+      const label = excluded.createEl("label");
+      const input = label.createEl("input", { type: "checkbox" });
+      input.checked = (layer.excludeCategories || []).includes(value);
+      label.createSpan({ text: value });
+      input.onchange = () => {
+        const current = layer.excludeCategories || [];
+        layer.excludeCategories = input.checked ? [...current, value] : current.filter((v) => v !== value);
+        excluded.querySelector("summary").textContent = `Exclude categories${layer.excludeCategories.length ? ` \xB7 ${layer.excludeCategories.length}` : ""}`;
+      };
     }
   }
   async save() {

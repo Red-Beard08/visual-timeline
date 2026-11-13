@@ -74,12 +74,16 @@ export class CompositionModal extends Modal {
     const save=this.button(footer,'Save composition',()=>void this.save());save.addClass('mod-cta');
   }
   private filters(parent:HTMLElement,layer:TimelineLayer):void {
-    parent.createEl('p',{cls:'vt-section-note',text:'No selection means all. Options within each group match ANY; different groups must ALL match.'});
+    parent.createEl('p',{cls:'vt-section-note',text:'No selection means all. Included values within a group match ANY; different groups must ALL match. Excluded categories always hide matching records.'});
     const groups:[keyof Pick<TimelineLayer,'types'|'categories'|'tags'>,string,string[]][]=[['types','Note types',RECORD_TYPES],['categories','Categories',[...this.plugin.settings.categories,...this.records.flatMap(r=>r.categories),...layer.categories]],['tags','Tags',[...this.records.flatMap(r=>r.tags),...layer.tags]]];
     for(const [key,title,values]of groups){const field=parent.createEl('fieldset',{cls:'vt-filter-options'});field.createEl('legend',{text:title});
       for(const value of [...new Set(values)].sort()){const label=field.createEl('label');const input=label.createEl('input',{type:'checkbox'});input.checked=layer[key].includes(value);label.createSpan({text:value.replace('visual-timeline-','')});input.onchange=()=>{layer[key]=input.checked?[...layer[key],value]:layer[key].filter(v=>v!==value);};}
       if(!values.length)field.createEl('p',{text:'No options found in current notes.'});
     }
+    const excluded=parent.createEl('details',{cls:'vt-filter-exclusions'});excluded.createEl('summary',{text:`Exclude categories${layer.excludeCategories?.length?` · ${layer.excludeCategories.length}`:''}`});
+    const values=[...new Set([...this.plugin.settings.categories,...this.records.flatMap(r=>r.categories),...(layer.excludeCategories||[])])].sort();
+    if(!values.length)excluded.createEl('p',{text:'No categories found in current notes.'});
+    for(const value of values){const label=excluded.createEl('label');const input=label.createEl('input',{type:'checkbox'});input.checked=(layer.excludeCategories||[]).includes(value);label.createSpan({text:value});input.onchange=()=>{const current=layer.excludeCategories||[];layer.excludeCategories=input.checked?[...current,value]:current.filter(v=>v!==value);excluded.querySelector('summary')!.textContent=`Exclude categories${layer.excludeCategories.length?` · ${layer.excludeCategories.length}`:''}`;};}
   }
   private async save():Promise<void>{
     try{await this.plugin.saveComposition(this.projectId,normalizeComposition(this.draft));}

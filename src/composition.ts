@@ -6,7 +6,7 @@ export interface LayerAttachment {anchorLayer: string; relationship: Relationshi
 export interface TimelineLayer {
   attachment?: LayerAttachment;
   id: string; name: string; enabled: boolean;
-  types: string[]; categories: string[]; tags: string[];
+  types: string[]; categories: string[]; excludeCategories?: string[]; tags: string[];
   style: DisplayStyle | 'default'; plane: 'background' | 'foreground';
   opacity: number; color: string; labels: 'adaptive' | 'always' | 'selection' | 'hidden';
   bandPlacement?: 'context' | 'lane' | 'integrated'; tintFromAttached?: boolean;
@@ -31,7 +31,7 @@ export function contrastText(color:string):string {
 }
 export const uid = ():string => `view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
 export function newLayer(name = 'New layer', type = ''):TimelineLayer {
-  return {id:uid(),name,enabled:true,types:type?[`visual-timeline-${type}`]:[],categories:[],tags:[],style:'default',plane:'foreground',opacity:1,color:'#659fa0',labels:'adaptive',bandPlacement:'context',bandShape:'box',tintFromAttached:false};
+  return {id:uid(),name,enabled:true,types:type?[`visual-timeline-${type}`]:[],categories:[],excludeCategories:[],tags:[],style:'default',plane:'foreground',opacity:1,color:'#659fa0',labels:'adaptive',bandPlacement:'context',bandShape:'box',tintFromAttached:false};
 }
 export function newRow(name = 'New row', layers:TimelineLayer[] = []):TimelineRow {return {id:uid(),name,height:220,enabled:true,layers,anchorOrder:[],maxSubtracks:3};}
 export function defaults():CompositionSettings {
@@ -50,7 +50,7 @@ export function normalizeComposition(value:unknown):CompositionSettings {
   if(!value || typeof value!=='object')return defaults();
   const raw=value as Partial<CompositionSettings>;
   if(!Array.isArray(raw.views)||!raw.views.length)return defaults();
-  const views=raw.views.filter(v=>v&&typeof v==='object').map(v=>({id:typeof v.id==='string'?v.id:uid(),name:String(v.name||'Untitled view'),...(v.yearGrid!==undefined?{yearGrid:v.yearGrid===true}:{}),rows:(Array.isArray(v.rows)?v.rows:[]).filter(Boolean).map(r=>({id:r.id||uid(),name:String(r.name||'Untitled row'),height:finite(r.height,220,120,1200),anchorOrder:strings(r.anchorOrder),maxSubtracks:Math.round(finite(r.maxSubtracks,3,1,6)),enabled:r.enabled!==false,layers:(Array.isArray(r.layers)?r.layers:[]).filter(Boolean).map(l=>({...newLayer(),id:l.id||uid(),name:String(l.name||'Untitled layer'),enabled:l.enabled!==false,types:strings(l.types),categories:strings(l.categories),tags:strings(l.tags),style:STYLES.includes(l.style as DisplayStyle)?l.style:'default',plane:l.plane==='background'?'background':'foreground',opacity:finite(l.opacity,1,.1,1),color:/^#[\da-f]{6}$/i.test(l.color)?l.color:'#659fa0',labels:['adaptive','always','selection','hidden'].includes(l.labels)?l.labels:'adaptive',attachment:normalizeAttachment(l.attachment)} as TimelineLayer))}))}));
+  const views=raw.views.filter(v=>v&&typeof v==='object').map(v=>({id:typeof v.id==='string'?v.id:uid(),name:String(v.name||'Untitled view'),...(v.yearGrid!==undefined?{yearGrid:v.yearGrid===true}:{}),rows:(Array.isArray(v.rows)?v.rows:[]).filter(Boolean).map(r=>({id:r.id||uid(),name:String(r.name||'Untitled row'),height:finite(r.height,220,120,1200),anchorOrder:strings(r.anchorOrder),maxSubtracks:Math.round(finite(r.maxSubtracks,3,1,6)),enabled:r.enabled!==false,layers:(Array.isArray(r.layers)?r.layers:[]).filter(Boolean).map(l=>({...newLayer(),id:l.id||uid(),name:String(l.name||'Untitled layer'),enabled:l.enabled!==false,types:strings(l.types),categories:strings(l.categories),excludeCategories:strings(l.excludeCategories),tags:strings(l.tags),style:STYLES.includes(l.style as DisplayStyle)?l.style:'default',plane:l.plane==='background'?'background':'foreground',opacity:finite(l.opacity,1,.1,1),color:/^#[\da-f]{6}$/i.test(l.color)?l.color:'#659fa0',labels:['adaptive','always','selection','hidden'].includes(l.labels)?l.labels:'adaptive',attachment:normalizeAttachment(l.attachment)} as TimelineLayer))}))}));
   if(!views.length)return defaults();
   for(const view of views)for(const row of view.rows)for(const layer of row.layers){
     const stored=raw.views.find(v=>v.id===view.id)?.rows?.find(r=>r.id===row.id)?.layers?.find(l=>l.id===layer.id);
@@ -65,7 +65,8 @@ export function normalizeComposition(value:unknown):CompositionSettings {
 }
 export function matches(record:TimelineRecord,layer:TimelineLayer):boolean {
   const norm=(s:string)=>s.replace(/^#/,'').toLocaleLowerCase();
-  return layer.enabled&&(!layer.types.length||layer.types.includes(record.type))&&(!layer.categories.length||layer.categories.some(c=>record.categories.map(norm).includes(norm(c))))&&(!layer.tags.length||layer.tags.some(t=>record.tags.map(norm).includes(norm(t))));
+  const categories=record.categories.map(norm);
+  return layer.enabled&&(!layer.types.length||layer.types.includes(record.type))&&(!layer.categories.length||layer.categories.some(c=>categories.includes(norm(c))))&&!(layer.excludeCategories||[]).some(c=>categories.includes(norm(c)))&&(!layer.tags.length||layer.tags.some(t=>record.tags.map(norm).includes(norm(t))));
 }
 export function styleFor(r:TimelineRecord,l:TimelineLayer,defaults:Record<string,DisplayStyle>):DisplayStyle {
   return l.style!=='default'?l.style:r.categories.map(c=>defaults[c]).find(Boolean)||defaults[r.type.replace('visual-timeline-','')]||'box';
