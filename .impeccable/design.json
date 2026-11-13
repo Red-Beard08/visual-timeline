@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-10T22:26:37-06:00",
+  "generatedAt": "2026-11-13T12:24:02-06:00",
   "title": "Design System: Visual Timeline",
   "extensions": {
     "colorMeta": {
@@ -83,7 +83,7 @@
       "name": "Aligned record name",
       "kind": "custom",
       "refersTo": "name-label",
-      "description": "Unboxed name, orthogonal leader and transparent focus backing. Leaders paint behind historical shapes so they do not cross diamond faces; names remain above the shapes. Stream names sit 7px outside the lower stream edge; category names start 7px inside the category's upper edge. Attached names clear the full category extent and use up to four 22px-spaced rail levels, collision checks and truncation without creating historical lanes.",
+      "description": "Unboxed name, orthogonal leader and transparent focus backing. Leaders paint behind historical shapes so they do not cross diamond faces; names remain above the shapes. Stream names sit 7px outside the lower stream edge; category names start 7px inside the category's upper edge. Attached names clear the full category extent and use up to four 22px-spaced rail levels. Try full titles in collision-free local space first; point labels may use any open vertical rail within a bounded 320px neighborhood centered on the date, without midpoint partitions. Existing labels block overlaps and leaders preserve the exact marker date. Abbreviate only when no local slot fits, without creating historical lanes.",
       "html": "<svg width=\"280\" height=\"110\" aria-labelledby=\"ds-vt-title-5-1\"><title id=\"ds-vt-title-5-1\">Record name treatment</title><path class=\"ds-name-leader\" d=\"M 24 94 V 44 H 32 V 37\"/><g class=\"ds-name\" role=\"button\" tabindex=\"0\" aria-labelledby=\"ds-vt-title-5-2\"><title id=\"ds-vt-title-5-2\">Record title</title><rect class=\"ds-name-backdrop\" x=\"21\" y=\"19\" width=\"86\" height=\"21\" rx=\"2\"/><text class=\"ds-name-text\" x=\"24\" y=\"34\">Record title</text></g></svg>",
       "css": ".ds-name{cursor:pointer;outline:none}.ds-name-text{font:500 13px var(--font-interface,sans-serif);fill:var(--text-normal);pointer-events:none}.ds-name-leader{stroke:var(--text-muted);stroke-width:.65;opacity:.42;fill:none;pointer-events:none}.ds-name-backdrop{fill:transparent;stroke:transparent}.ds-name:hover .ds-name-text{text-decoration:underline;text-underline-offset:3px}.ds-name:focus-visible{outline:2px solid var(--interactive-accent);outline-offset:3px}.ds-name:focus-visible .ds-name-backdrop{stroke:var(--text-normal);stroke-width:1}"
     },
@@ -133,7 +133,7 @@
     ],
     "rules": [
       { "name": "The Host-Theme Rule", "body": "Preserve Obsidian's active theme; no fixed dark canvas, imported font or example palette is required.", "section": "colors" },
-      { "name": "The Stable-Label Rule", "body": "Zoom the time axis, not the font or vertical geometry; use truncation, available rail slots, selection and zoom instead of shrinking names.", "section": "typography" }
+      { "name": "The Stable-Label Rule", "body": "Zoom the time axis, not the font or vertical geometry. Try the full name inside collision-free space in that item's nearby temporal neighborhood first. Point labels may use open vertical rails anywhere within a bounded 320px neighborhood centered on their date; do not divide that space at adjacent-event midpoints, which can collapse to a few pixels when dates cluster. Existing labels still block overlaps, and leaders preserve the exact marker date. Duration and category names may use their own recorded span. Only abbreviate when no local slot can hold the title, truncating at a complete-word boundary and splitting a single long word only as a last resort. Selection and accessible labels always retain the full title.", "section": "typography" }
     ],
     "dos": [
       "Do preserve the host theme, interface font and native controls.",
